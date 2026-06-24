@@ -1,11 +1,13 @@
-
+import { AppLayout } from "@/components/layout/AppLayout";
 
 function App() {
   return (
-      <div className="flex items-center justify-center h-screen text-3xl font-bold underline">
-        Hello world!
+    <AppLayout>
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        Select a view from the sidebar
       </div>
-  )
+    </AppLayout>
+  );
 }
 
-export default App
+export default App;
