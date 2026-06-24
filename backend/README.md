@@ -42,6 +42,31 @@ source .venv/bin/activate
 pip install -r app/requirements.txt
 ```
 
+### OSRM Routing Engine (Optional but Recommended)
+
+By default, the backend seeds straight-line waypoint coordinates if OSRM is offline. To use actual road-following geometries, set up OSRM:
+
+1. Download regional OSM data:
+   ```bash
+   mkdir -p osrm_data
+   curl -L -o osrm_data/philippines-latest.osm.pbf https://download.geofabrik.de/asia/philippines-latest.osm.pbf
+   ```
+2. Build the routing graph (run from the project root directory):
+   ```bash
+   cd ..
+   docker run --rm -t -v "$(pwd)/backend/osrm_data:/data" osrm/osrm-backend osrm-extract -p /opt/car.lua /data/philippines-latest.osm.pbf
+   docker run --rm -t -v "$(pwd)/backend/osrm_data:/data" osrm/osrm-backend osrm-contract /data/philippines-latest.osrm
+   ```
+3. Start the OSRM backend container:
+   ```bash
+   docker-compose up -d
+   ```
+4. Seed or re-seed the routes database:
+   ```bash
+   cd backend
+   PYTHONPATH=. .venv/bin/python app/simulation/reseed.py
+   ```
+
 ### Configuration
 
 Copy the environment template and configure your database connection:
