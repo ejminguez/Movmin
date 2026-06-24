@@ -1,6 +1,11 @@
+
+
 function App() {
-  return(
-    <div className='flex items-center justify-center text-2xl font-bold text-green-800 h-screen'>Hello MovMin</div>
+  return (
+      <div className="flex items-center justify-center h-screen text-3xl font-bold underline">
+        Hello world!
+      </div>
   )
 }
+
 export default App
