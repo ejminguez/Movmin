@@ -1,0 +1,20 @@
+import { createBrowserRouter } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import CorridorMonitor from "@/pages/CorridorMonitor";
+import RoutesPage from "@/pages/RoutesPage";
+import IncidentsPage from "@/pages/IncidentsPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
+import SettingsPage from "@/pages/SettingsPage";
+
+export const router = createBrowserRouter([
+  {
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <CorridorMonitor /> },
+      { path: "routes", element: <RoutesPage /> },
+      { path: "incidents", element: <IncidentsPage /> },
+      { path: "analytics", element: <AnalyticsPage /> },
+      { path: "settings", element: <SettingsPage /> },
+    ],
+  },
+]);
