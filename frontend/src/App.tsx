@@ -1,13 +1,21 @@
+import { Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import CorridorMonitor from "@/pages/CorridorMonitor";
+import RoutesPage from "@/pages/RoutesPage";
+import IncidentsPage from "@/pages/IncidentsPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
+import SettingsPage from "@/pages/SettingsPage";
 
-function App() {
+export default function App() {
   return (
-    <AppLayout>
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Select a view from the sidebar
-      </div>
-    </AppLayout>
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route index element={<CorridorMonitor />} />
+        <Route path="routes" element={<RoutesPage />} />
+        <Route path="incidents" element={<IncidentsPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+      </Route>
+    </Routes>
   );
 }
-
-export default App;
