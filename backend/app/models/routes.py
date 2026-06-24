@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text
+from sqlalchemy import Column, Integer, String, Float, Text, JSON
 from app.core.database import Base
 
 
@@ -10,3 +10,4 @@ class Route(Base):
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=False)
     distance_km = Column(Float, nullable=True)
+    waypoints = Column(JSON, nullable=True)

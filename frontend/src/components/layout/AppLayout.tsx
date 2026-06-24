@@ -1,17 +1,16 @@
 import { Outlet } from "react-router-dom";
 import { Header } from "./Header";
-import { Sidebar } from "./Sidebar";
 
 export function AppLayout() {
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-zinc-950">
       <Header />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto px-6 pb-6 pt-2">
           <Outlet />
         </main>
       </div>
     </div>
   );
 }
+
