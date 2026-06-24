@@ -4,6 +4,7 @@ export interface Route {
   description: string | null;
   color: string;
   distance_km: number | null;
+  waypoints?: number[][];
 }
 
 export interface Bus {
@@ -17,6 +18,7 @@ export interface Bus {
   speed: number;
   occupancy: number;
   status: string;
+  bearing?: number;
   last_updated: string;
 }
 
