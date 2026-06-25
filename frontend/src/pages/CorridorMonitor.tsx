@@ -3,28 +3,20 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "@/lib/api";
 import { useBusesWebSocket } from "@/hooks/useBusesWebSocket";
-import type { Route, Terminal, Incident } from "@/types";
-import { MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle, Clock } from "lucide-react";
+import type { Route, Terminal, Incident, CorridorStatusResponse, BusETAResponse } from "@/types";
+import {
+  MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle, Clock, TriangleAlert,
+} from "lucide-react";
 import ETAPanel from "@/components/ETAPanel";
 import IncidentFeedPanel from "@/components/IncidentFeedPanel";
 import IncidentDetailCard from "@/components/IncidentDetailCard";
-
-interface CorridorStatus {
-  route_id: number;
-  route_name: string;
-  color: string;
-  active_bus_count: number;
-  avg_speed: number;
-  avg_delay_min: number;
-  capacity_utilization: number;
-  congestion_level: string;
-}
 
 export default function CorridorMonitor() {
   const { buses, incidents, isConnected } = useBusesWebSocket();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
-  const [corridors, setCorridors] = useState<CorridorStatus[]>([]);
+  const [corridors, setCorridors] = useState<CorridorStatusResponse[]>([]);
+  const [busEtas, setBusEtas] = useState<Record<number, BusETAResponse>>({});
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"corridors" | "incidents">("corridors");
@@ -48,7 +40,7 @@ export default function CorridorMonitor() {
         const [routesData, terminalsData, corridorsData] = await Promise.all([
           api.get<Route[]>("/api/routes"),
           api.get<Terminal[]>("/api/terminals"),
-          api.get<CorridorStatus[]>("/api/corridors/status"),
+          api.get<CorridorStatusResponse[]>("/api/corridors/status"),
         ]);
         setRoutes(routesData);
         setTerminals(terminalsData);
@@ -68,7 +60,7 @@ export default function CorridorMonitor() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const corridorsData = await api.get<CorridorStatus[]>("/api/corridors/status");
+        const corridorsData = await api.get<CorridorStatusResponse[]>("/api/corridors/status");
         setCorridors(corridorsData);
         setLastSynced(new Date());
       } catch (err) {
@@ -77,6 +69,30 @@ export default function CorridorMonitor() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // 2.5 Fetch bus ETAs periodically — centralized, no client-side ETA calculation
+  useEffect(() => {
+    const fetchBusEtas = async () => {
+      const etaMap: Record<number, BusETAResponse> = {};
+      const batchSize = 10;
+      const busIds = buses.filter(b => b.speed > 0).map(b => b.id);
+      for (let i = 0; i < busIds.length; i += batchSize) {
+        const batch = busIds.slice(i, i + batchSize);
+        const results = await Promise.allSettled(
+          batch.map(id => api.get<BusETAResponse>(`/api/eta/bus/${id}`))
+        );
+        results.forEach((r, idx) => {
+          if (r.status === "fulfilled" && r.value) {
+            etaMap[batch[idx]] = r.value;
+          }
+        });
+      }
+      setBusEtas(etaMap);
+    };
+    fetchBusEtas();
+    const interval = setInterval(fetchBusEtas, 10000);
+    return () => clearInterval(interval);
+  }, [buses.length]);
 
   // 3. Initialize Map
   useEffect(() => {
@@ -237,7 +253,8 @@ export default function CorridorMonitor() {
         // Update popup content dynamically
         const existingPopup = busPopupsRef.current[bus.id];
         if (existingPopup) {
-          const busEta = getBusETA(bus);
+          const busEta = getBusETA(bus.id);
+          const statusColor = busEta?.status === "ON TIME" ? "text-emerald-500" : busEta?.status === "MINOR DELAY" ? "text-amber-500" : busEta?.status === "DELAYED" || busEta?.status === "SEVERELY DELAYED" ? "text-red-500" : "text-emerald-500";
           existingPopup.setHTML(`
             <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
               <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
@@ -245,8 +262,8 @@ export default function CorridorMonitor() {
                 <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
                 <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
                 <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
-                <div><span class="text-zinc-500">Status:</span> <span class="font-bold ${bus.status === 'delayed' ? 'text-amber-500' : 'text-emerald-500'} uppercase text-[10px]">${bus.status}</span></div>
-                ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.etaMin)} min</span></div>` : ""}
+                <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px] ${statusColor}">${busEta?.status ?? bus.status}</span></div>
+                ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal_name.replace(" Terminal", "")}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.total_time_min)} min</span></div>` : ""}
               </div>
             </div>
           `);
@@ -267,8 +284,9 @@ export default function CorridorMonitor() {
         dot.appendChild(arrow);
         el.appendChild(dot);
 
-        // Custom Popup
-        const busEta = getBusETA(bus);
+        // Custom Popup — uses centralized ETA from API
+        const busEta = getBusETA(bus.id);
+        const statusColor = busEta?.status === "ON TIME" ? "text-emerald-500" : busEta?.status === "MINOR DELAY" ? "text-amber-500" : busEta?.status === "DELAYED" || busEta?.status === "SEVERELY DELAYED" ? "text-red-500" : "text-emerald-500";
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
           <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
@@ -276,8 +294,8 @@ export default function CorridorMonitor() {
               <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
               <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
               <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
-              <div><span class="text-zinc-500">Status:</span> <span class="font-bold ${bus.status === 'delayed' ? 'text-amber-500' : 'text-emerald-500'} uppercase text-[10px]">${bus.status}</span></div>
-              ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.etaMin)} min</span></div>` : ""}
+              <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px] ${statusColor}">${busEta?.status ?? bus.status}</span></div>
+              ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal_name.replace(" Terminal", "")}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.total_time_min)} min</span></div>` : ""}
             </div>
           </div>
         `);
@@ -452,55 +470,24 @@ export default function CorridorMonitor() {
   const focusedCorridor = corridors.find((c) => c.route_id === selectedRouteId);
   const focusedRoute = routes.find((r) => r.id === selectedRouteId);
 
-  // Helper for status badge style
-  function getStatusStyle(congestion: string) {
-    switch (congestion) {
-      case "Heavy Traffic":
+  // Helper for status badge style — uses centralized incident-aware status
+  function getStatusStyle(status: string) {
+    switch (status) {
+      case "SEVERELY DELAYED":
+      case "SERVICE DISRUPTED":
         return "bg-red-950/80 border border-red-700 text-red-400";
-      case "Moderate Traffic":
+      case "DELAYED":
+      case "REROUTING":
         return "bg-amber-950/80 border border-amber-700 text-amber-400";
+      case "MINOR DELAY":
+        return "bg-yellow-950/80 border border-yellow-700 text-yellow-400";
       default:
         return "bg-emerald-950/80 border border-emerald-700 text-emerald-400";
     }
   }
 
-  function getStatusLabel(congestion: string) {
-    switch (congestion) {
-      case "Heavy Traffic":
-        return "CRITICAL";
-      case "Moderate Traffic":
-        return "DELAYED";
-      default:
-        return "ON-TIME";
-    }
-  }
-
-  function haversineDist(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const R = 6371;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  function getBusETA(bus: typeof buses[0]): { terminal: string; etaMin: number } | null {
-    if (bus.current_lat == null || bus.current_lng == null || bus.speed <= 0) return null;
-    const route = routes.find((r) => r.id === bus.route_id);
-    if (!route) return null;
-    const routeTerminals = terminals.filter(
-      (t) => t.route_id === route.id || t.route_id === null
-    );
-    let nearest: Terminal | null = null;
-    let minDist = Infinity;
-    for (const t of routeTerminals) {
-      const d = haversineDist(bus.current_lat, bus.current_lng, t.lat, t.lng);
-      if (d < minDist) {
-        minDist = d;
-        nearest = t;
-      }
-    }
-    if (!nearest) return null;
-    return { terminal: nearest.name.replace(" Terminal", ""), etaMin: (minDist / bus.speed) * 60 };
+  function getBusETA(busId: number): BusETAResponse | null {
+    return busEtas[busId] ?? null;
   }
 
   // Calculate total dynamic stats
@@ -622,7 +609,8 @@ export default function CorridorMonitor() {
               <>
                 {corridors.map((corridor) => {
                   const isSelected = corridor.route_id === selectedRouteId;
-                  
+                  const hasIncidents = corridor.affected_incidents.length > 0;
+
                   return (
                     <div
                       key={corridor.route_id}
@@ -633,6 +621,7 @@ export default function CorridorMonitor() {
                           : "bg-zinc-900/40 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/60"
                       }`}
                     >
+                      {/* Header: name + status badge */}
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                           <div className="h-2 w-2 rounded-full" style={{ backgroundColor: corridor.color }}></div>
@@ -640,20 +629,29 @@ export default function CorridorMonitor() {
                             {corridor.route_name}
                           </span>
                         </div>
-                        <span className={`text-[9px] font-black tracking-wider px-2 py-0.5 rounded-full ${getStatusStyle(corridor.congestion_level)}`}>
-                          {getStatusLabel(corridor.congestion_level)}
+                        <span className={`text-[9px] font-black tracking-wider px-2 py-0.5 rounded-full ${getStatusStyle(corridor.status)}`}>
+                          {corridor.status}
                         </span>
                       </div>
 
-                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5">
+                      {/* ETA row */}
+                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
                         <span>CAP {corridor.capacity_utilization}%</span>
-                        <span className={corridor.avg_delay_min > 0 ? "text-amber-500 font-semibold" : "text-emerald-500"}>
-                          {corridor.avg_delay_min > 0 ? `+${corridor.avg_delay_min}m delay` : "+0m delay"}
+                        <span className="text-zinc-100 font-semibold">
+                          ETA: {corridor.eta_min != null ? `${Math.round(corridor.eta_min)} min` : "—"}
                         </span>
                       </div>
 
-                      {/* Horizontal Capacity Bar */}
-                      <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      {/* Delay row */}
+                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5">
+                        <span>{corridor.active_bus_count} active units</span>
+                        <span className={corridor.avg_delay_min > 0 ? "text-amber-500 font-semibold" : "text-emerald-500"}>
+                          {corridor.avg_delay_min > 0 ? `+${Math.round(corridor.avg_delay_min)}m delay` : "On time"}
+                        </span>
+                      </div>
+
+                      {/* Capacity bar */}
+                      <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{
@@ -662,6 +660,19 @@ export default function CorridorMonitor() {
                           }}
                         />
                       </div>
+
+                      {/* Affected incidents */}
+                      {hasIncidents && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {corridor.affected_incidents.map((inc, idx) => (
+                            <div key={idx} className="flex items-center gap-1 text-[9px] text-red-400">
+                              <TriangleAlert className="h-2.5 w-2.5 shrink-0" />
+                              <span>{inc.title}</span>
+                              <span className="text-zinc-500 ml-auto">+{inc.estimated_delay_min}m</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -690,7 +701,7 @@ export default function CorridorMonitor() {
         </div>
       </div>
 
-      {/* Focus Panel */}
+      {/* Focus Panel — incident-aware ETA and status */}
       {focusedCorridor && (
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
           <div className="flex items-center gap-3">
@@ -706,6 +717,9 @@ export default function CorridorMonitor() {
                 <span className="text-[10px] font-medium text-zinc-500 leading-none">
                   {focusedRoute?.distance_km} km
                 </span>
+                <span className={`text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded-full ${getStatusStyle(focusedCorridor.status)}`}>
+                  {focusedCorridor.status}
+                </span>
               </div>
               <h3 className="text-lg font-black text-zinc-100 mt-1 leading-tight">
                 {focusedCorridor.route_name}
@@ -716,60 +730,53 @@ export default function CorridorMonitor() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 max-w-3xl justify-items-stretch md:justify-items-center">
             <div className="text-left md:text-center border-l md:border-l-0 border-zinc-800 pl-3 md:pl-0">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                ETA
+              </span>
+              <p className="text-sm font-black text-zinc-100 mt-0.5">
+                {focusedCorridor.eta_min != null ? `${Math.round(focusedCorridor.eta_min)} min` : "—"}
+              </p>
+            </div>
+
+            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                Delay
+              </span>
+              <p className={`text-sm font-black mt-0.5 ${focusedCorridor.avg_delay_min > 0 ? "text-amber-500" : "text-zinc-100"}`}>
+                {focusedCorridor.avg_delay_min > 0 ? `+${Math.round(focusedCorridor.avg_delay_min)} min` : "0 min"}
+              </p>
+            </div>
+
+            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                Active Units
+              </span>
+              <p className="text-sm font-black text-zinc-100 mt-0.5">
+                {buses.filter(b => b.route_id === selectedRouteId).length}
+              </p>
+            </div>
+
+            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
                 Capacity
               </span>
               <p className="text-sm font-black text-zinc-100 mt-0.5">
                 {focusedCorridor.capacity_utilization}%
               </p>
             </div>
-            
-            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                Avg Delay
-              </span>
-              <p className={`text-sm font-black mt-0.5 ${focusedCorridor.avg_delay_min > 0 ? "text-amber-500" : "text-zinc-100"}`}>
-                {focusedCorridor.avg_delay_min} min
-              </p>
-            </div>
-            
-            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                Active Units
-              </span>
-              <p className="text-sm font-black text-zinc-100 mt-0.5">
-                {buses.filter(b => b.route_id === selectedRouteId).length} / 10
-              </p>
-            </div>
-            
-            <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                ETA Confidence
-              </span>
-              <div className="flex items-center gap-1.5 mt-0.5 justify-start md:justify-center">
-                {focusedCorridor.congestion_level === "Heavy Traffic" ? (
-                  <>
-                    <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-xs font-black text-red-400 uppercase">Low</span>
-                  </>
-                ) : focusedCorridor.congestion_level === "Moderate Traffic" ? (
-                  <>
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                    <span className="text-xs font-black text-amber-400 uppercase">Medium</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                    <span className="text-xs font-black text-emerald-400 uppercase">High</span>
-                  </>
-                )}
-              </div>
-            </div>
           </div>
 
-          <button className="flex items-center justify-center gap-1.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 hover:text-white px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-300 transition-colors shadow-sm self-stretch md:self-auto shrink-0">
-            <span>Open Corridor</span>
-            <ArrowUpRight className="h-4 w-4" />
-          </button>
+          {/* Affected incidents row in focus panel */}
+          {focusedCorridor.affected_incidents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3 mt-2 md:border-t-0 md:pt-0 md:mt-0">
+              {focusedCorridor.affected_incidents.map((inc, idx) => (
+                <div key={idx} className="flex items-center gap-1 bg-red-950/40 border border-red-900/60 rounded px-2 py-1">
+                  <TriangleAlert className="h-3 w-3 text-red-400 shrink-0" />
+                  <span className="text-[10px] text-red-300 font-medium">{inc.title}</span>
+                  <span className="text-[10px] text-red-400 font-bold">+{inc.estimated_delay_min}m</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
