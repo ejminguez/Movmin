@@ -3,9 +3,11 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "@/lib/api";
 import { useBusesWebSocket } from "@/hooks/useBusesWebSocket";
-import type { Route, Terminal } from "@/types";
+import type { Route, Terminal, Incident } from "@/types";
 import { MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle, Clock } from "lucide-react";
 import ETAPanel from "@/components/ETAPanel";
+import IncidentFeedPanel from "@/components/IncidentFeedPanel";
+import IncidentDetailCard from "@/components/IncidentDetailCard";
 
 interface CorridorStatus {
   route_id: number;
@@ -19,11 +21,13 @@ interface CorridorStatus {
 }
 
 export default function CorridorMonitor() {
-  const { buses, isConnected } = useBusesWebSocket();
+  const { buses, incidents, isConnected } = useBusesWebSocket();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [corridors, setCorridors] = useState<CorridorStatus[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"corridors" | "incidents">("corridors");
   const [lastSynced, setLastSynced] = useState<Date>(new Date());
   const [showEtaPanel, setShowEtaPanel] = useState(false);
   
@@ -35,6 +39,7 @@ export default function CorridorMonitor() {
   const terminalsAddedRef = useRef<boolean>(false);
   const busMarkersRef = useRef<{ [id: number]: maplibregl.Marker }>({});
   const busPopupsRef = useRef<{ [id: number]: maplibregl.Popup }>({});
+  const incidentMarkersRef = useRef<{ [id: string]: maplibregl.Marker }>({});
 
   // 1. Fetch initial data
   useEffect(() => {
@@ -309,6 +314,140 @@ export default function CorridorMonitor() {
     });
   }, [map, isMapLoaded, buses, routes, terminals]);
 
+  // 6.5. Update Incident Markers dynamically
+  useEffect(() => {
+    if (!map || !isMapLoaded) return;
+
+    incidents.forEach((incident) => {
+      if (incident.longitude == null || incident.latitude == null) return;
+
+      const existingMarker = incidentMarkersRef.current[incident.id];
+      const isSelected = incident.id === selectedIncidentId;
+
+      // Choose color based on incident type
+      let color = "#ef4444"; // Landslide -> Red (default)
+      if (incident.type === "Flood Warning") color = "#3b82f6"; // Blue
+      else if (incident.type === "Road Closure") color = "#71717a"; // Gray
+      else if (incident.type === "Weather Advisory") color = "#f97316"; // Orange
+
+      if (existingMarker) {
+        // Update position if needed
+        existingMarker.setLngLat([incident.longitude, incident.latitude]);
+        
+        // Update selection highlight ring
+        const el = existingMarker.getElement();
+        const outerPulse = el.querySelector(".incident-pulse") as HTMLElement;
+        if (outerPulse) {
+          outerPulse.style.display = isSelected ? "block" : "none";
+        }
+      } else {
+        // Create new DOM element for incident marker
+        const el = document.createElement("div");
+        el.className = "cursor-pointer group transition-all duration-300";
+
+        el.innerHTML = `
+          <div style="position:relative;display:flex;align-items:center;justify-content:center;width:48px;height:48px;">
+
+            <!-- Outermost slow pulse ring -->
+            <div style="
+              position:absolute;
+              width:48px; height:48px;
+              border-radius:50%;
+              background-color:${color};
+              opacity:0.15;
+              animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;
+            "></div>
+
+            <!-- Middle pulse ring (offset delay) -->
+            <div style="
+              position:absolute;
+              width:32px; height:32px;
+              border-radius:50%;
+              background-color:${color};
+              opacity:0.25;
+              animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;
+              animation-delay:0.5s;
+            "></div>
+
+            <!-- Selection spinner ring (only visible when selected) -->
+            <div class="incident-pulse" style="
+              position:absolute;
+              width:40px; height:40px;
+              border-radius:50%;
+              border:2px dashed white;
+              opacity:0.8;
+              animation:spin 3s linear infinite;
+              display:${isSelected ? "block" : "none"};
+            "></div>
+
+            <!-- Solid glow backdrop -->
+            <div style="
+              position:absolute;
+              width:20px; height:20px;
+              border-radius:50%;
+              background-color:${color};
+              opacity:0.5;
+              filter:blur(4px);
+            "></div>
+
+            <!-- Center dot -->
+            <div style="
+              position:relative;
+              width:16px; height:16px;
+              border-radius:50%;
+              background-color:${color};
+              border:2px solid rgba(0,0,0,0.6);
+              box-shadow:0 0 0 2px ${color}66, 0 4px 12px ${color}99;
+              display:flex; align-items:center; justify-content:center;
+            ">
+              <div style="width:6px;height:6px;border-radius:50%;background:white;opacity:0.9;"></div>
+            </div>
+          </div>
+        `;
+
+        // Custom Popup
+        const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
+          <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[200px]">
+            <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-zinc-200">${incident.title}</div>
+            <div class="space-y-1">
+              <div><span class="text-zinc-500">Type:</span> ${incident.type}</div>
+              <div><span class="text-zinc-500">Severity:</span> <span class="font-bold uppercase text-[10px]" style="color: ${color}">${incident.severity}</span></div>
+              <div><span class="text-zinc-500">Delay:</span> <span class="font-bold text-amber-500">${incident.estimated_delay_minutes} min</span></div>
+              <div class="text-[10px] text-zinc-400 mt-1.5 border-t border-zinc-900 pt-1 leading-relaxed">${incident.description}</div>
+            </div>
+          </div>
+        `);
+
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([incident.longitude, incident.latitude])
+          .setPopup(popup)
+          .addTo(map);
+
+        // Open popup on hover
+        el.addEventListener("mouseenter", () => popup.addTo(map));
+        el.addEventListener("mouseleave", () => popup.remove());
+
+        // Select incident on click
+        el.addEventListener("click", () => {
+          setSelectedIncidentId(incident.id);
+          setShowEtaPanel(false); // Close ETA panel to prevent overlays
+          map.easeTo({ center: [incident.longitude, incident.latitude], zoom: 9.5, duration: 500 });
+        });
+
+        incidentMarkersRef.current[incident.id] = marker;
+      }
+    });
+
+    // Cleanup stale/expired incident markers
+    const activeIds = new Set(incidents.map((i) => i.id));
+    Object.keys(incidentMarkersRef.current).forEach((id) => {
+      if (!activeIds.has(id)) {
+        incidentMarkersRef.current[id].remove();
+        delete incidentMarkersRef.current[id];
+      }
+    });
+  }, [map, isMapLoaded, incidents, selectedIncidentId]);
+
   // Selected corridor details for focused view
   const focusedCorridor = corridors.find((c) => c.route_id === selectedRouteId);
   const focusedRoute = routes.find((r) => r.id === selectedRouteId);
@@ -366,7 +505,8 @@ export default function CorridorMonitor() {
 
   // Calculate total dynamic stats
   const activeBusesCount = buses.filter(b => b.status in ["active", "delayed"] || b.speed > 0).length || buses.length;
-  const activeIncidentsCount = 0; // Seeding in phase 3
+  const activeIncidentsCount = incidents.length;
+  const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
 
   return (
     <div className="flex flex-col h-full gap-4 text-zinc-100">
@@ -418,6 +558,15 @@ export default function CorridorMonitor() {
             </div>
           )}
 
+          {selectedIncident && (
+            <div className="absolute top-3 right-3 z-20">
+              <IncidentDetailCard
+                incident={selectedIncident}
+                onClose={() => setSelectedIncidentId(null)}
+              />
+            </div>
+          )}
+
           {/* Stats Bar overlayed on map bottom */}
           <div className="absolute bottom-3 left-3 z-10 flex gap-2">
             <div className="bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded px-4 py-2 flex flex-col shadow-lg shadow-black/50">
@@ -435,69 +584,107 @@ export default function CorridorMonitor() {
           </div>
         </div>
 
-        {/* Right Corridor Panel */}
+        {/* Right Corridor & Incident Panel */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col overflow-hidden max-h-[500px] lg:max-h-none">
-          <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
-            <h2 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-              Active Corridors
-            </h2>
-            <span className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-zinc-400">
-              {corridors.length} of {routes.length}
-            </span>
+          {/* Tabs Header */}
+          <div className="flex border-b border-zinc-800 bg-zinc-900/50 shrink-0">
+            <button
+              onClick={() => setActiveTab("corridors")}
+              className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-wider transition-all duration-200 border-b-2 ${
+                activeTab === "corridors"
+                  ? "border-amber-500 text-amber-500 bg-zinc-950/20"
+                  : "border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40"
+              }`}
+            >
+              Corridors ({corridors.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("incidents")}
+              className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-wider transition-all duration-200 border-b-2 flex items-center justify-center gap-1.5 ${
+                activeTab === "incidents"
+                  ? "border-amber-500 text-amber-500 bg-zinc-950/20"
+                  : "border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40"
+              }`}
+            >
+              <span>Incidents</span>
+              <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-full leading-none ${
+                incidents.length > 0
+                  ? "bg-red-500 text-white animate-pulse"
+                  : "bg-zinc-850 text-zinc-500"
+              }`}>
+                {incidents.length}
+              </span>
+            </button>
           </div>
 
-          <div className="p-2 space-y-2 overflow-y-auto flex-1">
-            {corridors.map((corridor) => {
-              const isSelected = corridor.route_id === selectedRouteId;
-              
-              return (
-                <div
-                  key={corridor.route_id}
-                  onClick={() => setSelectedRouteId(corridor.route_id)}
-                  className={`p-3 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
-                    isSelected
-                      ? "bg-zinc-900 border-zinc-600 shadow-md"
-                      : "bg-zinc-900/40 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/60"
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: corridor.color }}></div>
-                      <span className="font-bold text-sm tracking-tight text-zinc-100">
-                        {corridor.route_name}
-                      </span>
-                    </div>
-                    <span className={`text-[9px] font-black tracking-wider px-2 py-0.5 rounded-full ${getStatusStyle(corridor.congestion_level)}`}>
-                      {getStatusLabel(corridor.congestion_level)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5">
-                    <span>CAP {corridor.capacity_utilization}%</span>
-                    <span className={corridor.avg_delay_min > 0 ? "text-amber-500 font-semibold" : "text-emerald-500"}>
-                      {corridor.avg_delay_min > 0 ? `+${corridor.avg_delay_min}m delay` : "+0m delay"}
-                    </span>
-                  </div>
-
-                  {/* Horizontal Capacity Bar */}
-                  <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="p-2 space-y-2 overflow-y-auto flex-1 min-h-[300px]">
+            {activeTab === "corridors" ? (
+              <>
+                {corridors.map((corridor) => {
+                  const isSelected = corridor.route_id === selectedRouteId;
+                  
+                  return (
                     <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${corridor.capacity_utilization}%`,
-                        backgroundColor: corridor.color
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                      key={corridor.route_id}
+                      onClick={() => setSelectedRouteId(corridor.route_id)}
+                      className={`p-3 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
+                        isSelected
+                          ? "bg-zinc-900 border-zinc-600 shadow-md"
+                          : "bg-zinc-900/40 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/60"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: corridor.color }}></div>
+                          <span className="font-bold text-sm tracking-tight text-zinc-100">
+                            {corridor.route_name}
+                          </span>
+                        </div>
+                        <span className={`text-[9px] font-black tracking-wider px-2 py-0.5 rounded-full ${getStatusStyle(corridor.congestion_level)}`}>
+                          {getStatusLabel(corridor.congestion_level)}
+                        </span>
+                      </div>
 
-            {corridors.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-8 text-center text-zinc-500 h-full">
-                <Info className="h-8 w-8 mb-2 opacity-50" />
-                <span className="text-xs">Loading corridor information...</span>
-              </div>
+                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5">
+                        <span>CAP {corridor.capacity_utilization}%</span>
+                        <span className={corridor.avg_delay_min > 0 ? "text-amber-500 font-semibold" : "text-emerald-500"}>
+                          {corridor.avg_delay_min > 0 ? `+${corridor.avg_delay_min}m delay` : "+0m delay"}
+                        </span>
+                      </div>
+
+                      {/* Horizontal Capacity Bar */}
+                      <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${corridor.capacity_utilization}%`,
+                            backgroundColor: corridor.color
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {corridors.length === 0 && (
+                  <div className="flex flex-col items-center justify-center p-8 text-center text-zinc-500 h-full">
+                    <Info className="h-8 w-8 mb-2 opacity-50" />
+                    <span className="text-xs">Loading corridor information...</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <IncidentFeedPanel
+                incidents={incidents}
+                selectedIncidentId={selectedIncidentId}
+                onSelectIncident={(incident) => {
+                  setSelectedIncidentId(incident.id);
+                  if (map) {
+                    map.easeTo({ center: [incident.longitude, incident.latitude], zoom: 9.5, duration: 600 });
+                  }
+                  setShowEtaPanel(false); // Close ETA panel on selection
+                }}
+              />
             )}
           </div>
         </div>
