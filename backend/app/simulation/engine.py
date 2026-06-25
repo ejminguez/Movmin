@@ -151,12 +151,12 @@ class SimulationEngine:
         """Advance the simulation by one tick."""
         db = SessionLocal()
         try:
-            # 1. Load active incidents to calculate speed modifiers
+            # 1. Update incidents simulation (expires old ones, spawns new ones)
+            from app.simulation.incidents import update_incidents_simulation
+            update_incidents_simulation(db)
+
+            # 2. Load active incidents to calculate speed modifiers
             incidents = db.query(Incident).filter(Incident.status == "active").all()
-            route_delays = {}
-            for inc in incidents:
-                if inc.affected_route_id:
-                    route_delays[inc.affected_route_id] = route_delays.get(inc.affected_route_id, 0) + inc.estimated_delay_min
 
             buses = db.query(Bus).all()
             broadcast_data = []
@@ -182,17 +182,45 @@ class SimulationEngine:
                         state["speed"] = random.uniform(40.0, 60.0)
                         state["occupancy"] = random.randint(10, bus.capacity)
                 else:
-                    # Apply a speed reduction if there is an active incident delay on the route
-                    delay_factor = route_delays.get(bus.route_id, 0)
+                    # Determine speed multiplier and status based on incidents affecting this route
+                    route_incidents = [inc for inc in incidents if inc.affected_route_id == bus.route_id]
+                    
+                    status = "NORMAL"
+                    speed_multiplier = 1.0
+                    
+                    if route_incidents:
+                        incident_types = {inc.incident_type for inc in route_incidents}
+                        
+                        if "Road Closure" in incident_types:
+                            status = "STOPPED" if (bus.id % 2 == 0) else "REROUTING"
+                        elif "Landslide" in incident_types:
+                            status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
+                        elif "Flood Warning" in incident_types or "Weather Advisory" in incident_types:
+                            status = "DELAYED"
+                        else:
+                            status = "DELAYED"
+                        
+                        severity_multipliers = {
+                            "LOW": 0.9,
+                            "MEDIUM": 0.8,
+                            "HIGH": 0.6,
+                            "CRITICAL": 0.3
+                        }
+                        for inc in route_incidents:
+                            severity = inc.severity.upper() if inc.severity else "MEDIUM"
+                            mult = severity_multipliers.get(severity, 1.0)
+                            if mult < speed_multiplier:
+                                speed_multiplier = mult
+                                
+                    # Base speed is randomized
                     base_speed = random.uniform(45.0, 60.0)
-                    if delay_factor > 0:
-                        # Cap speed between 15-25 km/h for heavy delay
-                        speed_modifier = max(0.3, 1.0 - (delay_factor / 60.0))
-                        state["speed"] = max(15.0, base_speed * speed_modifier)
-                        state["status"] = "delayed"
+                    
+                    if status == "STOPPED":
+                        state["speed"] = 0.0
                     else:
-                        state["speed"] = base_speed
-                        state["status"] = "active"
+                        state["speed"] = base_speed * speed_multiplier
+                    
+                    state["status"] = status
 
                     # Calculate new distance traveled
                     # distance = speed * time
@@ -246,13 +274,33 @@ class SimulationEngine:
 
             db.commit()
 
-            # Broadcast update over WebSockets
-            if broadcast_data:
-                await websocket_manager.broadcast({
-                    "type": "bus_update",
-                    "timestamp": datetime.now().isoformat(),
-                    "buses": broadcast_data
+            # Package active incidents for WebSocket broadcast
+            incidents_data = []
+            for inc in incidents:
+                route = db.query(Route).filter(Route.id == inc.affected_route_id).first()
+                affected_routes = [route.name] if route else []
+                incidents_data.append({
+                    "id": f"INC{inc.id:03d}",
+                    "type": inc.incident_type,
+                    "severity": inc.severity.upper() if inc.severity else "MEDIUM",
+                    "title": inc.title or f"{inc.incident_type} on Route",
+                    "description": inc.description,
+                    "latitude": inc.lat or 0.0,
+                    "longitude": inc.lng or 0.0,
+                    "affected_routes": affected_routes,
+                    "estimated_delay_minutes": inc.estimated_delay_min or 0,
+                    "status": inc.status or "active",
+                    "created_at": inc.created_at.isoformat() if inc.created_at else None,
+                    "expires_at": inc.expires_at.isoformat() if inc.expires_at else None,
                 })
+
+            # Broadcast update over WebSockets
+            await websocket_manager.broadcast({
+                "type": "bus_update",
+                "timestamp": datetime.now().isoformat(),
+                "buses": broadcast_data,
+                "incidents": incidents_data
+            })
 
         except Exception as e:
             logger.error(f"Error in simulation tick: {e}", exc_info=True)

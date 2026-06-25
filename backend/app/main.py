@@ -12,6 +12,7 @@ from app.api.buses import router as buses_router
 from app.api.terminals import router as terminals_router
 from app.api.corridors import router as corridors_router
 from app.api.eta import router as eta_router
+from app.api.incidents import router as incidents_router
 from app.simulation.seed import seed_database
 from app.simulation.engine import simulation_engine, websocket_manager
 
@@ -26,6 +27,16 @@ async def lifespan(app: FastAPI):
         # Create tables
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created / verified")
+        
+        # Auto-migrate: add title and expires_at columns if they don't exist
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            try:
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS title VARCHAR(100)"))
+                conn.execute(text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE"))
+                logger.info("Database columns updated / verified successfully")
+            except Exception as e:
+                logger.warning("Could not run auto-migrations (this is expected on local SQLite): %s", e)
         
         # Seed routes and terminals
         with SessionLocal() as db:
@@ -60,6 +71,7 @@ app.include_router(buses_router, prefix="/api")
 app.include_router(terminals_router, prefix="/api")
 app.include_router(corridors_router, prefix="/api")
 app.include_router(eta_router, prefix="/api")
+app.include_router(incidents_router, prefix="/api")
 
 
 @app.get("/health")
