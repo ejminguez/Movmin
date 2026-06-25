@@ -31,6 +31,20 @@ export interface Terminal {
   terminal_type: string;
 }
 
+export interface ETAResponse {
+  from_terminal: string;
+  to_terminal: string;
+  route_name: string;
+  distance_km: number;
+  avg_speed: number;
+  base_time_min: number;
+  traffic_delay_min: number;
+  weather_delay_min: number;
+  weather_condition: string;
+  incident_delay_min: number;
+  total_time_min: number;
+}
+
 export interface Incident {
   id: number;
   incident_type: string;
