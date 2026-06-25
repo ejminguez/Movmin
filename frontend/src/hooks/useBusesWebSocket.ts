@@ -1,15 +1,32 @@
 import { useEffect, useState, useRef } from "react";
-import type { Bus } from "../types";
+import type { Bus, Incident } from "../types";
 
 export function useBusesWebSocket() {
   const [buses, setBuses] = useState<Bus[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws/buses";
+    const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
     let socket: WebSocket;
     let reconnectTimeout: ReturnType<typeof setTimeout>;
+
+    // Fetch initial active incidents
+    async function fetchInitialIncidents() {
+      try {
+        const response = await fetch(`${apiUrl}/api/incidents`);
+        if (response.ok) {
+          const data = await response.json();
+          setIncidents(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch initial incidents:", err);
+      }
+    }
+
+    fetchInitialIncidents();
 
     function connect() {
       socket = new WebSocket(wsUrl);
@@ -25,6 +42,9 @@ export function useBusesWebSocket() {
           const data = JSON.parse(event.data);
           if (data.type === "bus_update") {
             setBuses(data.buses);
+            if (data.incidents) {
+              setIncidents(data.incidents);
+            }
           }
         } catch (err) {
           console.error("Failed to parse WebSocket message:", err);
@@ -57,5 +77,5 @@ export function useBusesWebSocket() {
     };
   }, []);
 
-  return { buses, isConnected };
+  return { buses, incidents, isConnected };
 }

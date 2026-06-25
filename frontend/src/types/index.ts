@@ -45,17 +45,59 @@ export interface ETAResponse {
   total_time_min: number;
 }
 
-export interface Incident {
-  id: number;
+export interface AffectedIncident {
   incident_type: string;
   severity: string;
-  description: string | null;
-  lat: number | null;
-  lng: number | null;
-  affected_route_id: number | null;
+  title: string;
   estimated_delay_min: number;
+}
+
+export interface CorridorStatusResponse {
+  route_id: number;
+  route_name: string;
+  color: string;
+  active_bus_count: number;
+  avg_speed: number;
+  avg_delay_min: number;
+  capacity_utilization: number;
+  congestion_level: string;
+  status: string;
+  eta_min: number | null;
+  base_time_min: number | null;
+  incident_delay_min: number | null;
+  traffic_delay_min: number | null;
+  weather_delay_min: number | null;
+  weather_condition: string | null;
+  affected_incidents: AffectedIncident[];
+}
+
+export interface BusETAResponse {
+  bus_id: number;
+  bus_name: string;
+  terminal_id: number;
+  terminal_name: string;
+  distance_km: number;
+  base_time_min: number;
+  traffic_delay_min: number;
+  weather_delay_min: number;
+  incident_delay_min: number;
+  total_time_min: number;
+  status: string;
+}
+
+export interface Incident {
+  id: string;
+  type: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  title: string;
+  description: string | null;
+  latitude: number;
+  longitude: number;
+  affected_routes: string[];
+  estimated_delay_minutes: number;
   status: string;
   created_at: string;
+  expires_at: string | null;
 }
 
 export interface AnalyticSnapshot {

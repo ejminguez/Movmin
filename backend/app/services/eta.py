@@ -108,6 +108,131 @@ def _leg_time(
     }
 
 
+def get_route_eta(route_id: int, db: Session) -> Optional[dict]:
+    """
+    Centralized ETA for a corridor route.
+    Single source of truth — all ETA displays should call this.
+    Returns full breakdown including affected incidents.
+    """
+    route = db.query(Route).filter(Route.id == route_id).first()
+    if not route:
+        return None
+
+    hub = db.query(Terminal).filter(
+        Terminal.terminal_type == "terminal",
+        Terminal.route_id.is_(None),
+    ).first()
+    route_terminal = db.query(Terminal).filter(
+        Terminal.route_id == route_id,
+    ).first()
+    if not hub or not route_terminal:
+        return None
+
+    result = _leg_time(
+        route,
+        hub.lat, hub.lng,
+        route_terminal.lat, route_terminal.lng,
+        db,
+    )
+
+    incidents = db.query(Incident).filter(
+        Incident.affected_route_id == route_id,
+        Incident.status == "active",
+    ).all()
+
+    result["affected_incidents"] = [
+        {
+            "incident_type": inc.incident_type,
+            "severity": inc.severity,
+            "title": inc.title or "",
+            "estimated_delay_min": inc.estimated_delay_min,
+        }
+        for inc in incidents
+    ]
+
+    total_delay = result["traffic_delay_min"] + result["weather_delay_min"] + result["incident_delay_min"]
+    result["status"] = _compute_status(total_delay, incidents)
+
+    return result
+
+
+def _compute_status(total_delay: float, incidents: list) -> str:
+    has_road_closure = any(
+        inc.incident_type == "Road Closure" for inc in incidents
+    )
+    if has_road_closure:
+        return "REROUTING"
+
+    if total_delay == 0:
+        return "ON TIME"
+    elif total_delay <= 5:
+        return "MINOR DELAY"
+    elif total_delay <= 15:
+        return "DELAYED"
+    else:
+        return "SEVERELY DELAYED"
+
+
+def get_bus_eta(bus_id: int, db: Session) -> Optional[dict]:
+    """
+    Calculate ETA from a bus's current position to the nearest terminal on its route.
+    Uses centralized ETA engine — single source of truth.
+    """
+    bus = db.query(Bus).filter(Bus.id == bus_id).first()
+    if not bus or bus.current_lat is None or bus.current_lng is None:
+        return None
+
+    route = db.query(Route).filter(Route.id == bus.route_id).first()
+    if not route:
+        return None
+
+    # Find the nearest terminal on this route (or the hub terminal)
+    route_terminals = db.query(Terminal).filter(
+        Terminal.route_id == bus.route_id,
+    ).all()
+    hub = db.query(Terminal).filter(
+        Terminal.terminal_type == "terminal",
+        Terminal.route_id.is_(None),
+    ).first()
+    candidates = list(route_terminals)
+    if hub:
+        candidates.append(hub)
+
+    nearest_term = None
+    nearest_dist = float("inf")
+    for t in candidates:
+        d = haversine_distance((bus.current_lat, bus.current_lng), (t.lat, t.lng))
+        if d < nearest_dist:
+            nearest_dist = d
+            nearest_term = t
+
+    if not nearest_term:
+        return None
+
+    # Use the centralized leg time calculation
+    leg = _leg_time(route, bus.current_lat, bus.current_lng, nearest_term.lat, nearest_term.lng, db)
+
+    return {
+        "bus_id": bus.id,
+        "bus_name": bus.name,
+        "terminal_id": nearest_term.id,
+        "terminal_name": nearest_term.name,
+        "distance_km": leg["distance_km"],
+        "base_time_min": leg["base_time_min"],
+        "traffic_delay_min": leg["traffic_delay_min"],
+        "weather_delay_min": leg["weather_delay_min"],
+        "incident_delay_min": leg["incident_delay_min"],
+        "total_time_min": leg["total_time_min"],
+        "status": _compute_status(
+            leg["traffic_delay_min"] + leg["weather_delay_min"] + leg["incident_delay_min"],
+            db.query(Incident).filter(
+                Incident.affected_route_id == route.id,
+                Incident.status == "active",
+            ).all(),
+        ),
+    }
+
+
 def calculate_eta(
     from_terminal_id: int,
     to_terminal_id: int,

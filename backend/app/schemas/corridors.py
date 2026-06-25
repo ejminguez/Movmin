@@ -1,5 +1,12 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+
+
+class AffectedIncident(BaseModel):
+    incident_type: str
+    severity: str
+    title: str
+    estimated_delay_min: int
 
 
 class CorridorStatusResponse(BaseModel):
@@ -11,3 +18,11 @@ class CorridorStatusResponse(BaseModel):
     avg_delay_min: float
     capacity_utilization: float
     congestion_level: str
+    status: str = "ON TIME"
+    eta_min: Optional[float] = None
+    base_time_min: Optional[float] = None
+    incident_delay_min: Optional[float] = None
+    traffic_delay_min: Optional[float] = None
+    weather_delay_min: Optional[float] = None
+    weather_condition: Optional[str] = None
+    affected_incidents: List[AffectedIncident] = []
