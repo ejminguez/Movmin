@@ -67,6 +67,28 @@ By default, the backend seeds straight-line waypoint coordinates if OSRM is offl
    PYTHONPATH=. .venv/bin/python app/simulation/reseed.py
    ```
 
+### Run this for OSRM (in Mac)
+```
+docker run -d \
+  --name osrm-backend \
+  -p 5005:5000 \
+  -v "$(pwd)/backend/osrm_data:/data" \
+  osrm/osrm-backend \
+  osrm-routed --algorithm ch /data/philippines-latest.osrm
+```
+
+### Verification and Database Re-seeding (for simulated data OSRM)
+1. Verify OSRM is responding:
+```bash
+curl -s "http://localhost:5005/route/v1/driving/121.0,14.5;121.1,14.6?overview=false"
+```
+It should return a JSON object with code:ok
+2. Re-seed the routes database to fetch actual road-following geometries:
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python app/simulation/reseed.py
+```
+
 ### Configuration
 
 Copy the environment template and configure your database connection:
