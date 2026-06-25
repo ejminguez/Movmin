@@ -18,6 +18,7 @@ from app.api.corridors import router as corridors_router
 from app.api.eta import router as eta_router
 from app.api.incidents import router as incidents_router
 from app.api.analytics import router as analytics_router
+from app.api.scenarios import router as scenarios_router
 from app.simulation.seed import seed_database
 from app.simulation.engine import simulation_engine, websocket_manager
 
@@ -89,6 +90,7 @@ app.include_router(corridors_router, prefix="/api")
 app.include_router(eta_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(incidents_router, prefix="/api")
+app.include_router(scenarios_router, prefix="/api")
 
 
 @app.get("/health")
