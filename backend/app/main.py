@@ -1,8 +1,12 @@
+import asyncio
 import logging
 
 from contextlib import asynccontextmanager
 
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import engine, Base, SessionLocal
@@ -12,6 +16,7 @@ from app.api.buses import router as buses_router
 from app.api.terminals import router as terminals_router
 from app.api.corridors import router as corridors_router
 from app.api.eta import router as eta_router
+from app.api.analytics import router as analytics_router
 from app.simulation.seed import seed_database
 from app.simulation.engine import simulation_engine, websocket_manager
 
@@ -22,6 +27,7 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    analytics_task = None
     try:
         # Create tables
         Base.metadata.create_all(bind=engine)
@@ -35,12 +41,22 @@ async def lifespan(app: FastAPI):
         with SessionLocal() as db:
             simulation_engine.initialize_buses(db)
         await simulation_engine.start()
+        
+        # Start analytics scheduler
+        from app.services.analytics import start_snapshot_scheduler
+        analytics_task = asyncio.create_task(start_snapshot_scheduler())
     except Exception as e:
         logger.warning("Database or simulation not available yet: %s", e, exc_info=True)
         
     yield
     
-    # Shutdown simulation engine on exit
+    # Shutdown background tasks on exit
+    if analytics_task:
+        analytics_task.cancel()
+        try:
+            await analytics_task
+        except asyncio.CancelledError:
+            pass
     await simulation_engine.stop()
 
 
@@ -60,6 +76,7 @@ app.include_router(buses_router, prefix="/api")
 app.include_router(terminals_router, prefix="/api")
 app.include_router(corridors_router, prefix="/api")
 app.include_router(eta_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
 
 
 @app.get("/health")

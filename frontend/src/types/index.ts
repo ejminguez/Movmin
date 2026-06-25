@@ -57,3 +57,36 @@ export interface Incident {
   status: string;
   created_at: string;
 }
+
+export interface AnalyticSnapshot {
+  id: number;
+  route_id: number;
+  route_name: string;
+  color: string;
+  timestamp: string;
+  avg_travel_time_min: number | null;
+  avg_delay_min: number | null;
+  on_time_performance: number | null;
+  utilization: number | null;
+  active_bus_count: number;
+}
+
+export interface RouteAnalyticsSummary {
+  route_id: number;
+  route_name: string;
+  color: string;
+  current_utilization: number;
+  avg_utilization: number;
+  current_delay_min: number;
+  avg_delay_min: number;
+  current_otp: number;
+  avg_otp: number;
+  snapshot_count: number;
+}
+
+export interface RouteSnapshotResponse {
+  route_id: number;
+  route_name: string;
+  color: string;
+  snapshots: AnalyticSnapshot[];
+}
