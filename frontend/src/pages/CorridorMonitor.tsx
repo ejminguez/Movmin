@@ -4,7 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "@/lib/api";
 import { useBusesWebSocket } from "@/hooks/useBusesWebSocket";
 import type { Route, Terminal } from "@/types";
-import { MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react";
+import { MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle, Clock } from "lucide-react";
+import ETAPanel from "@/components/ETAPanel";
 
 interface CorridorStatus {
   route_id: number;
@@ -24,6 +25,7 @@ export default function CorridorMonitor() {
   const [corridors, setCorridors] = useState<CorridorStatus[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [lastSynced, setLastSynced] = useState<Date>(new Date());
+  const [showEtaPanel, setShowEtaPanel] = useState(false);
   
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<maplibregl.Map | null>(null);
@@ -32,6 +34,7 @@ export default function CorridorMonitor() {
   const routesAddedRef = useRef<boolean>(false);
   const terminalsAddedRef = useRef<boolean>(false);
   const busMarkersRef = useRef<{ [id: number]: maplibregl.Marker }>({});
+  const busPopupsRef = useRef<{ [id: number]: maplibregl.Popup }>({});
 
   // 1. Fetch initial data
   useEffect(() => {
@@ -225,6 +228,24 @@ export default function CorridorMonitor() {
           }
           dot.style.backgroundColor = bus.status === "delayed" ? "#f59e0b" : "#10b981";
         }
+
+        // Update popup content dynamically
+        const existingPopup = busPopupsRef.current[bus.id];
+        if (existingPopup) {
+          const busEta = getBusETA(bus);
+          existingPopup.setHTML(`
+            <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
+              <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
+              <div class="space-y-1">
+                <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
+                <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
+                <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
+                <div><span class="text-zinc-500">Status:</span> <span class="font-bold ${bus.status === 'delayed' ? 'text-amber-500' : 'text-emerald-500'} uppercase text-[10px]">${bus.status}</span></div>
+                ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.etaMin)} min</span></div>` : ""}
+              </div>
+            </div>
+          `);
+        }
       } else {
         // Create new DOM element for bus marker
         const el = document.createElement("div");
@@ -242,14 +263,16 @@ export default function CorridorMonitor() {
         el.appendChild(dot);
 
         // Custom Popup
+        const busEta = getBusETA(bus);
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
-          <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[200px]">
+          <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
             <div class="space-y-1">
               <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
               <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
               <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
               <div><span class="text-zinc-500">Status:</span> <span class="font-bold ${bus.status === 'delayed' ? 'text-amber-500' : 'text-emerald-500'} uppercase text-[10px]">${bus.status}</span></div>
+              ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.etaMin)} min</span></div>` : ""}
             </div>
           </div>
         `);
@@ -258,6 +281,8 @@ export default function CorridorMonitor() {
           .setLngLat([bus.current_lng, bus.current_lat])
           .setPopup(popup)
           .addTo(map);
+
+        busPopupsRef.current[bus.id] = popup;
 
         // Open popup on hover
         el.addEventListener("mouseenter", () => popup.addTo(map));
@@ -279,9 +304,10 @@ export default function CorridorMonitor() {
       if (!activeIds.has(id)) {
         busMarkersRef.current[id].remove();
         delete busMarkersRef.current[id];
+        delete busPopupsRef.current[id];
       }
     });
-  }, [map, isMapLoaded, buses, routes]);
+  }, [map, isMapLoaded, buses, routes, terminals]);
 
   // Selected corridor details for focused view
   const focusedCorridor = corridors.find((c) => c.route_id === selectedRouteId);
@@ -310,6 +336,34 @@ export default function CorridorMonitor() {
     }
   }
 
+  function haversineDist(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function getBusETA(bus: typeof buses[0]): { terminal: string; etaMin: number } | null {
+    if (bus.current_lat == null || bus.current_lng == null || bus.speed <= 0) return null;
+    const route = routes.find((r) => r.id === bus.route_id);
+    if (!route) return null;
+    const routeTerminals = terminals.filter(
+      (t) => t.route_id === route.id || t.route_id === null
+    );
+    let nearest: Terminal | null = null;
+    let minDist = Infinity;
+    for (const t of routeTerminals) {
+      const d = haversineDist(bus.current_lat, bus.current_lng, t.lat, t.lng);
+      if (d < minDist) {
+        minDist = d;
+        nearest = t;
+      }
+    }
+    if (!nearest) return null;
+    return { terminal: nearest.name.replace(" Terminal", ""), etaMin: (minDist / bus.speed) * 60 };
+  }
+
   // Calculate total dynamic stats
   const activeBusesCount = buses.filter(b => b.status in ["active", "delayed"] || b.speed > 0).length || buses.length;
   const activeIncidentsCount = 0; // Seeding in phase 3
@@ -326,11 +380,24 @@ export default function CorridorMonitor() {
             Live position of {activeBusesCount} units across {routes.length} active intercity corridors.
           </p>
         </div>
-        <div className="flex items-center gap-2 self-start md:self-auto bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-[10px] text-zinc-400">
-          <div className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`}></div>
-          <span>{isConnected ? "Connected to Live GPS Stream" : "GPS Connection Offline"}</span>
-          <span className="text-zinc-600">|</span>
-          <span>Synced {Math.max(0, Math.floor((new Date().getTime() - lastSynced.getTime()) / 1000))}s ago</span>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <button
+            onClick={() => setShowEtaPanel(!showEtaPanel)}
+            className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-[10px] font-bold transition-all ${
+              showEtaPanel
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Clock className="h-3 w-3" />
+            <span>ETA</span>
+          </button>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-[10px] text-zinc-400">
+            <div className={`h-1.5 w-1.5 rounded-full inline-block mr-1.5 ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`}></div>
+            <span>{isConnected ? "Live GPS" : "Offline"}</span>
+            <span className="text-zinc-600 ml-1.5 mr-1.5">|</span>
+            <span>{Math.max(0, Math.floor((new Date().getTime() - lastSynced.getTime()) / 1000))}s ago</span>
+          </div>
         </div>
       </div>
 
@@ -344,6 +411,12 @@ export default function CorridorMonitor() {
           </div>
 
           <div ref={mapContainerRef} className="w-full flex-1 min-h-[300px] h-full" />
+
+          {showEtaPanel && (
+            <div className="absolute top-3 right-3 z-20">
+              <ETAPanel terminals={terminals} onClose={() => setShowEtaPanel(false)} />
+            </div>
+          )}
 
           {/* Stats Bar overlayed on map bottom */}
           <div className="absolute bottom-3 left-3 z-10 flex gap-2">
