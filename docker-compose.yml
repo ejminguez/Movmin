@@ -1,12 +1,43 @@
-version: '3.8'
-
 services:
-  osrm:
-    image: osrm/osrm-backend:latest
-    container_name: osrm-backend
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: movmin
     ports:
-      - "5005:5000"
+      - "5433:5432"
     volumes:
-      - ./backend/osrm_data:/data
-    command: osrm-routed --algorithm ch /data/philippines-latest.osrm
-    restart: unless-stopped
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/movmin
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000/ws/buses
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
