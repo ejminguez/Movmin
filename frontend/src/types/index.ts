@@ -46,14 +46,16 @@ export interface ETAResponse {
 }
 
 export interface Incident {
-  id: number;
-  incident_type: string;
-  severity: string;
+  id: string;
+  type: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  title: string;
   description: string | null;
-  lat: number | null;
-  lng: number | null;
-  affected_route_id: number | null;
-  estimated_delay_min: number;
+  latitude: number;
+  longitude: number;
+  affected_routes: string[];
+  estimated_delay_minutes: number;
   status: string;
   created_at: string;
+  expires_at: string | null;
 }
