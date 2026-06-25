@@ -11,6 +11,7 @@ from app.api.routes import router as routes_router
 from app.api.buses import router as buses_router
 from app.api.terminals import router as terminals_router
 from app.api.corridors import router as corridors_router
+from app.api.eta import router as eta_router
 from app.simulation.seed import seed_database
 from app.simulation.engine import simulation_engine, websocket_manager
 
@@ -58,6 +59,7 @@ app.include_router(routes_router, prefix="/api")
 app.include_router(buses_router, prefix="/api")
 app.include_router(terminals_router, prefix="/api")
 app.include_router(corridors_router, prefix="/api")
+app.include_router(eta_router, prefix="/api")
 
 
 @app.get("/health")
