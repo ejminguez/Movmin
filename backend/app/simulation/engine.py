@@ -11,6 +11,7 @@ from app.models.routes import Route
 from app.models.buses import Bus
 from app.models.incidents import Incident
 from app.simulation.coordinates import get_position_along_route
+from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,20 @@ class SimulationEngine:
                     
                     state["status"] = status
 
+                    # Apply active scenario overrides if present
+                    overrides = scenario_manager.get_overrides(bus.route_id)
+                    if overrides:
+                        if overrides.get("status") == "CLOSED":
+                            state["speed"] = 0.0
+                            state["status"] = "STOPPED"
+                        else:
+                            if "speed_multiplier" in overrides:
+                                state["speed"] = state["speed"] * overrides["speed_multiplier"]
+                            if "status_override" in overrides:
+                                state["status"] = overrides["status_override"]
+                            if "occupancy_multiplier" in overrides:
+                                state["occupancy"] = min(bus.capacity, int(state["occupancy"] * overrides["occupancy_multiplier"]))
+
                     # Calculate new distance traveled
                     # distance = speed * time
                     # tick interval is in seconds, speed in km/h
@@ -240,6 +255,12 @@ class SimulationEngine:
                             state["distance_km"] = 0.0
                             state["direction"] = True
                             state["pause_ticks"] = 5  # Pause for 10 seconds (5 ticks)
+
+                # Ensure closed routes keep speed 0 and status STOPPED
+                overrides = scenario_manager.get_overrides(bus.route_id)
+                if overrides and overrides.get("status") == "CLOSED":
+                    state["speed"] = 0.0
+                    state["status"] = "STOPPED"
 
                 # Get coordinate and bearing
                 pos, bearing = get_position_along_route(waypoints, state["distance_km"])
@@ -295,12 +316,17 @@ class SimulationEngine:
                 })
 
             # Broadcast update over WebSockets
-            await websocket_manager.broadcast({
+            payload = {
                 "type": "bus_update",
                 "timestamp": datetime.now().isoformat(),
                 "buses": broadcast_data,
                 "incidents": incidents_data
-            })
+            }
+            if scenario_manager.is_active():
+                payload["scenario_active"] = True
+                payload["active_scenario"] = scenario_manager.get_status_payload()
+
+            await websocket_manager.broadcast(payload)
 
         except Exception as e:
             logger.error(f"Error in simulation tick: {e}", exc_info=True)

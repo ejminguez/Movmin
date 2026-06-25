@@ -5,6 +5,8 @@ export function useBusesWebSocket() {
   const [buses, setBuses] = useState<Bus[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [scenarioActive, setScenarioActive] = useState(false);
+  const [activeScenario, setActiveScenario] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -45,6 +47,8 @@ export function useBusesWebSocket() {
             if (data.incidents) {
               setIncidents(data.incidents);
             }
+            setScenarioActive(!!data.scenario_active);
+            setActiveScenario(data.active_scenario || null);
           }
         } catch (err) {
           console.error("Failed to parse WebSocket message:", err);
@@ -77,5 +81,5 @@ export function useBusesWebSocket() {
     };
   }, []);
 
-  return { buses, incidents, isConnected };
+  return { buses, incidents, isConnected, scenarioActive, activeScenario };
 }

@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { Route, Map, AlertTriangle, BarChart3, Cog } from "lucide-react";
+import { Route, Map, AlertTriangle, BarChart3, Cog, FlaskConical } from "lucide-react";
 
 const navItems = [
   { label: "Corridor Monitor", to: "/", icon: Map },
   { label: "Routes", to: "/routes", icon: Route },
+  { label: "Scenario Simulator", to: "/scenarios", icon: FlaskConical },
   { label: "Incidents", to: "/incidents", icon: AlertTriangle },
   { label: "Analytics", to: "/analytics", icon: BarChart3 },
   { label: "Settings", to: "/settings", icon: Cog },
