@@ -31,13 +31,38 @@ Build an MVP prototype to improve provincial transit (passengers, operators, LGU
 - **ETA Panel** (`ETAPanel.tsx`) — Floating panel with origin/destination selectors, delay breakdown bars, and auto-polling every 5s.
 - **Bus Tooltip ETA** — Each bus marker shows live "ETA to nearest terminal" with dynamic content refresh.
 
+### Completed — Phase 3: Demand Intelligence & AI Insights
+- **Demand Simulation** (`simulation/demand.py`) — 24-hour passenger demand simulation per route with:
+  - Base demand anchored to corridor characteristics (Tagum=1500 highest, Mati=600 lowest due to distance)
+  - Hourly profile with morning peak (6-8AM), midday peak (11AM-1PM), evening peak (4-6PM)
+  - Philippine holiday calendar with demand multipliers (Kadayawan Aug 16-20 = 1.5x, Araw ng Davao = 1.2x)
+  - Local festival bonuses per route (Paskuhan sa Tagum, Sambolawan Festival Mati, etc.)
+  - Weather impact from existing weather service (storm = 0.4x, clear = 1.05x)
+  - Weekend reduction (0.75x), seasonal adjustment (holiday season = 1.15x)
+  - Confidence decreases with forecast distance (1.0 → 0.3 over 24 hours)
+- **Demand API** (`api/demand.py`) — Three endpoints:
+  - `GET /api/demand/forecast/{route_id}` — 24-hour demand prediction with hourly breakdown
+  - `GET /api/demand/forecast` — Aggregate forecasts for all 5 routes
+  - `GET /api/demand/insights/{route_id}` — AI-powered operational recommendations
+- **AI Insights Engine** (`services/insights.py`) — Dual-mode insight generation:
+  - **Amazon Bedrock** (`amazon.titan-text-express-v1`): When AWS credentials configured, calls Bedrock with demand data and parses JSON response
+  - **Template Fallback**: Per-route hardcoded summaries, recommendations, and confidence labels when Bedrock unavailable
+  - Auto-detects Bedrock availability via boto3; logs status on startup
+- **AnalyticsPage** (`frontend/src/pages/AnalyticsPage.tsx`) — Demand intelligence dashboard with:
+  - Route selector tabs (matching Phase 2 pattern)
+  - 4 KPI cards: Daily Total, Morning/Midday/Evening peak demand values
+  - 24-hour bar chart showing predicted demand per hour
+  - Demand trend line chart with confidence overlay (dashed green line)
+  - AI insight card with dynamic icon (Brain for Bedrock, Lightbulb for template), source badge, summary text, and recommendation callout box
+
 ## 3. Tech Stack
 - **Frontend:** React 19 + Vite + TypeScript 6, styled with TailwindCSS v4 and shadcn/ui
 - **Mapping/Charts:** MapLibre GL (interactive transit maps), Recharts (data visualizations)
-- **Backend:** FastAPI (Python 3.14) — route simulations, ETA math, incidents, scenario engine
+- **Backend:** FastAPI (Python 3.14) — route simulations, ETA math, incidents, scenario engine, demand forecasting
 - **Database:** PostgreSQL via SQLAlchemy 2.0 + Alembic migrations
 - **Containerization:** Docker Compose (PostgreSQL 16, FastAPI backend, Vite frontend)
-- **AI & Cloud (planned):** Amazon Bedrock (LLM insights), AWS Lambda (data streams), AWS Amplify (deployment)
+- **AI & Cloud (planned):** Amazon Bedrock (LLM insights via Titan Text Express), AWS Lambda (data streams), AWS Amplify (deployment)
+- **AWS SDK:** boto3 for Bedrock runtime (graceful fallback when credentials absent)
 
 ## 4. Project Structure
 ```
@@ -53,8 +78,11 @@ Movmin/
 │   │   ├── api/                    # REST endpoints
 │   │   │   ├── buses.py
 │   │   │   ├── corridors.py
+│   │   │   ├── demand.py           # GET /api/demand/forecast, /api/demand/insights
 │   │   │   ├── eta.py              # GET /api/eta
 │   │   │   ├── routes.py
+│   │   │   ├── scenarios.py
+│   │   │   ├── incidents.py
 │   │   │   └── terminals.py
 │   │   ├── core/
 │   │   │   ├── config.py           # Pydantic Settings
@@ -65,13 +93,17 @@ Movmin/
 │   │   │   ├── incidents.py, analytics.py, forecasts.py
 │   │   ├── schemas/                # Pydantic request/response
 │   │   │   ├── routes.py, buses.py, terminals.py
-│   │   │   ├── corridors.py, eta.py
+│   │   │   ├── corridors.py, eta.py, demand.py
 │   │   ├── services/
 │   │   │   ├── eta.py              # ETA calculation engine
 │   │   │   ├── weather.py          # Simulated weather per route
-│   │   │   └── routing.py          # OSRM async client
+│   │   │   ├── insights.py         # Bedrock + template demand insights
+│   │   │   ├── routing.py          # OSRM async client
+│   │   │   ├── analytics.py        # Snapshot scheduler
+│   │   │   └── scenario.py         # Scenario manager
 │   │   └── simulation/
 │   │       ├── engine.py           # Bus simulation + WebSocket broadcast
+│   │       ├── demand.py           # 24h demand forecast engine
 │   │       ├── coordinates.py      # Haversine, bearing, interpolation
 │   │       ├── seed.py             # DB seeding (routes, terminals)
 │   │       └── reseed.py           # Reseed utility
@@ -83,8 +115,11 @@ Movmin/
 │   │   ├── App.tsx / router.tsx    # React Router config
 │   │   ├── pages/
 │   │   │   ├── CorridorMonitor.tsx # Main dashboard (map + sidebar)
-│   │   │   ├── RoutesPage.tsx, IncidentsPage.tsx (placeholder)
-│   │   │   ├── AnalyticsPage.tsx, SettingsPage.tsx (placeholder)
+│   │   │   ├── RouteAnalyticsPage.tsx  # Route KPIs with Recharts
+│   │   │   ├── AnalyticsPage.tsx   # Demand intelligence dashboard
+│   │   │   ├── ScenarioPage.tsx    # Scenario simulation UI
+│   │   │   ├── IncidentsPage.tsx
+│   │   │   └── SettingsPage.tsx
 │   │   ├── components/
 │   │   │   ├── ETAPanel.tsx        # ETA calculator with delay breakdown
 │   │   │   └── layout/             # AppLayout, Header, Sidebar
@@ -93,7 +128,7 @@ Movmin/
 │   │   ├── lib/
 │   │   │   └── api.ts              # Fetch-based API client
 │   │   └── types/
-│   │       └── index.ts            # Route, Bus, Terminal, ETAResponse, Incident
+│   │       └── index.ts            # All TypeScript interfaces
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── index.css                   # Tailwind v4 + shadcn/ui theme
@@ -102,7 +137,8 @@ Movmin/
 └── plans/
     ├── 00_PRODUCT_SPECIFICATION.md
     ├── 01_IMPLEMENTATION_PLAN.md
-    └── 02_OSM_INTEGRATION_PLAN.md
+    ├── 02_OSM_INTEGRATION_PLAN.md
+    └── 03_DEMAND_INTELLIGENCE_PLAN.md
 ```
 
 ## 5. Database Schema
@@ -125,6 +161,17 @@ Movmin/
 | GET | `/api/terminals` | List all terminals |
 | GET | `/api/corridors/status` | Per-route aggregate status |
 | GET | `/api/eta?from_terminal_id=&to_terminal_id=` | ETA with delay breakdown |
+| GET | `/api/analytics/routes` | Latest analytics snapshot for all routes |
+| GET | `/api/analytics/routes/{id}` | Historical snapshots for a route (default 60 min) |
+| GET | `/api/analytics/routes/{id}/summary` | Aggregated KPIs for a route |
+| GET | `/api/demand/forecast` | Demand forecast for all 5 routes |
+| GET | `/api/demand/forecast/{route_id}` | 24h demand forecast for a single route |
+| GET | `/api/demand/insights/{route_id}` | AI-powered demand insight with recommendation |
+| POST | `/api/scenarios/simulate` | Simulate a disruption scenario |
+| POST | `/api/scenarios/apply` | Apply a scenario preset |
+| POST | `/api/scenarios/reset` | Reset active scenario |
+| GET | `/api/scenarios/presets` | List scenario presets |
+| GET | `/api/incidents` | List active incidents |
 | WS | `/ws/buses` | Live bus position stream (2s interval) |
 
 ## 7. ETA Calculation Logic
@@ -138,11 +185,11 @@ Incident Delay:   Sum of estimated_delay_min from active incidents on route
 ```
 
 ## 8. Routes Covered
-- Davao → Tagum (yellow, #eab308)
-- Davao → Panabo (blue, #3b82f6)
-- Davao → Digos (red, #ef4444)
-- Davao → Mati (green, #10b981)
-- Davao → Kidapawan (purple, #a855f7)
+- Davao → Tagum (yellow, #eab308) — highest demand base (1500), Tagum corridor
+- Davao → Panabo (blue, #3b82f6) — short commuter route (800 base)
+- Davao → Digos (red, #ef4444) — south corridor (1000 base)
+- Davao → Mati (green, #10b981) — long east coast (600 base)
+- Davao → Kidapawan (purple, #a855f7) — upland agricultural (700 base)
 
 ## 9. Fleet
 - 50 simulated buses with attributes: id, route_id, name, lat/lng, speed, occupancy, status (active/delayed)
@@ -154,9 +201,11 @@ The MVP is successful if judges can:
 - See moving buses with direction indicators
 - Receive ETA predictions with delay breakdowns
 - View incidents affecting routes
-- Generate AI mobility insights (planned)
-- Simulate disruptions (planned)
-- Visualize transportation demand patterns (planned)
+- **View passenger demand forecasts with 24-hour charts per route**
+- **Read AI-generated operational recommendations for each corridor**
+- **See confidence levels and weather/holiday factors affecting demand**
+- Simulate disruptions and see impact analysis
 
 Acknowledge that you understand this specific ecosystem, data structure, and regional layout. Await my exact instructions for code generation, architecture planning, or debugging. Do not write any code yet. Just confirm you are ready.
 ```
+
