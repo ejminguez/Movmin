@@ -298,6 +298,7 @@ class SimulationEngine:
                     "occupancy": bus.occupancy,
                     "status": bus.status,
                     "bearing": round(bearing, 1),
+                    "direction": state["direction"],
                     "last_updated": bus.last_updated.isoformat()
                 })
 

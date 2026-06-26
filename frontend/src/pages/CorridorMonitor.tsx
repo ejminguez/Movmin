@@ -371,7 +371,7 @@ export default function CorridorMonitor() {
         const el = existingMarker.getElement();
         const arrow = el.querySelector(".bus-marker-arrow") as HTMLElement;
         if (arrow) {
-          arrow.style.transform = `rotate(${(bus.bearing ?? 0) + 180}deg)`;
+          arrow.style.transform = `rotate(${bus.bearing ?? 0}deg)`;
         }
 
         const dot = el.querySelector(".bus-marker-dot") as HTMLElement;
@@ -384,11 +384,12 @@ export default function CorridorMonitor() {
         const existingPopup = busPopupsRef.current[bus.id];
         if (existingPopup) {
           const popupColor = getBusColor(bus.status);
+          const routeLabel = displayRouteName(route?.name, bus.direction);
           existingPopup.setHTML(`
             <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
               <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
               <div class="space-y-1">
-                <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
+                <div><span class="text-zinc-500">Route:</span> ${routeLabel}</div>
                 <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
                 <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
                 <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
@@ -407,17 +408,18 @@ export default function CorridorMonitor() {
 
         const arrow = document.createElement("div");
         arrow.className = "bus-marker-arrow w-0 h-0 border-l-[3.5px] border-l-transparent border-r-[3.5px] border-r-transparent border-b-[7px] border-b-black -mt-[1px] transition-transform duration-300";
-        arrow.style.transform = `rotate(${(bus.bearing ?? 0) + 180}deg)`;
+        arrow.style.transform = `rotate(${bus.bearing ?? 0}deg)`;
 
         dot.appendChild(arrow);
         el.appendChild(dot);
 
         const popupColor = getBusColor(bus.status);
+        const routeLabel = displayRouteName(route?.name, bus.direction);
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
           <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
             <div class="space-y-1">
-              <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
+              <div><span class="text-zinc-500">Route:</span> ${routeLabel}</div>
               <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
               <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
               <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
@@ -548,6 +550,15 @@ export default function CorridorMonitor() {
       default:
         return "bg-emerald-950/80 border border-emerald-700 text-emerald-400";
     }
+  }
+
+  function displayRouteName(routeName: string | undefined, direction: boolean | undefined): string {
+    if (!routeName) return "Unknown";
+    if (direction === false) {
+      const parts = routeName.split(" → ");
+      if (parts.length === 2) return `${parts[1]} → ${parts[0]}`;
+    }
+    return routeName;
   }
 
   function getBusColor(status: string): string {

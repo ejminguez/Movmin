@@ -19,6 +19,7 @@ export interface Bus {
   occupancy: number;
   status: string;
   bearing?: number;
+  direction?: boolean;
   last_updated: string;
 }
 
