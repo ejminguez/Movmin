@@ -168,6 +168,43 @@ export interface ScenarioResult {
   insight: ScenarioInsight;
 }
 
+export interface DemandForecastHour {
+  hour: number;
+  predicted_demand: number;
+  confidence: number;
+  weather_impact: string | null;
+}
+
+export interface DemandForecast {
+  route_id: number;
+  route_name: string;
+  color: string;
+  forecast_date: string;
+  generated_at: string;
+  forecasts: DemandForecastHour[];
+}
+
+export interface DemandForecastAll {
+  routes: DemandForecast[];
+}
+
+export interface DemandPeak {
+  hour: number;
+  demand: number;
+  label: string;
+}
+
+export interface DemandInsight {
+  route_id: number;
+  route_name: string;
+  color: string;
+  daily_total: number;
+  peak_hours: DemandPeak[];
+  summary: string;
+  recommendation: string;
+  source: string;
+}
+
 export interface ScenarioSimulateRequest {
   type: "route_closure" | "demand_surge" | "severe_weather" | "combined";
   route_id?: number;

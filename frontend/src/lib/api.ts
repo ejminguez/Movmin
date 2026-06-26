@@ -1,4 +1,4 @@
-import type { ScenarioPreset, ScenarioResult, ScenarioSimulateRequest } from "@/types";
+import type { ScenarioPreset, ScenarioResult, ScenarioSimulateRequest, DemandForecast, DemandForecastAll, DemandInsight } from "@/types";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -33,4 +33,13 @@ export const api = {
 
   resetScenario: () =>
     request<{ status: string }>("/api/scenarios/reset", { method: "POST", body: JSON.stringify({}) }),
+
+  getDemandForecast: (routeId: number, hours = 24) =>
+    request<DemandForecast>(`/api/demand/forecast/${routeId}?hours=${hours}`),
+
+  getDemandForecastAll: () =>
+    request<DemandForecastAll>("/api/demand/forecast"),
+
+  getDemandInsights: (routeId: number) =>
+    request<DemandInsight>(`/api/demand/insights/${routeId}`),
 };
