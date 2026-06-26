@@ -1,149 +1,211 @@
-from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+import json
+import logging
+from typing import Optional
 
-class InsightProvider(ABC):
-    @abstractmethod
+from app.simulation.demand import (
+    get_demand_forecast,
+    get_total_daily_demand,
+    get_peak_hours,
+    get_route_multipliers_summary,
+)
+
+logger = logging.getLogger(__name__)
+
+ROUTE_SUMMARIES: dict[int, str] = {
+    1: "Tagum Corridor — high-volume inter-city route serving the Davao–Tagum daily commute.",
+    3: "Digos Corridor — moderate-volume southbound commuter route with consistent midday traffic.",
+    2: "Panabo Corridor — short-distance commuter route with high frequency and sharp peak demand.",
+    4: "Mati Corridor — long-distance east coast route with lower baseline demand but significant tourist-related surges.",
+    5: "Kidapawan Corridor — upland route connecting Davao to Kidapawan, with moderate demand driven by agricultural trade.",
+}
+
+RECOMMENDATIONS: dict[int, str] = {
+    1: "Consider adding 2 extra trips during 6–8 AM and 4–6 PM peak windows to reduce overcrowding on the Tagum corridor.",
+    3: "Deploy 1 additional bus during the 11 AM–1 PM lunch peak to absorb the midday demand surge on the Digos corridor.",
+    2: "Short-headway scheduling is critical for Panabo — maintain 10-minute intervals during morning peak to prevent bunching.",
+    4: "Schedule long-distance Mati trips with a mid-morning departure to align with tourist arrival patterns; consider seasonal capacity adjustments.",
+    5: "Coordinate Kidapawan departures with market hours (6–9 AM) to capture agricultural commuter demand.",
+}
+
+CONFIDENCE_LABELS = {
+    1: ("high", "Historical data shows consistent daily patterns on this route."),
+    3: ("high", "Digos corridor demand follows a stable commuter pattern with high predictability."),
+    2: ("medium", "Panabo's short-haul nature makes demand sensitive to weather and local events."),
+    4: ("low", "Mati's long-distance demand is highly seasonal and can vary significantly."),
+    5: ("medium", "Kidapawan demand is influenced by agricultural cycles and local market schedules."),
+}
+
+try:
+    import boto3
+    from botocore.exceptions import NoCredentialsError, ClientError
+
+    session = boto3.Session()
+    region = session.region_name or "ap-southeast-1"
+    bedrock = boto3.client("bedrock-runtime", region_name=region)
+    BEDROCK_AVAILABLE = True
+    logger.info("Amazon Bedrock client initialized (region=%s).", region)
+except Exception:
+    bedrock = None
+    BEDROCK_AVAILABLE = False
+    logger.info("Amazon Bedrock not available — falling back to template-based insights.")
+
+
+def _generate_bedrock_insight(route_id: int, forecast_data: dict) -> Optional[dict]:
+    if not BEDROCK_AVAILABLE or bedrock is None:
+        return None
+
+    prompt = f"""You are a public transit demand analyst in Davao Region, Philippines.
+Given the following demand forecast data for a transit route, generate a short insight
+with: 1) a one-sentence summary of the demand pattern, 2) an operational recommendation,
+3) peak hours identified.
+
+Route ID: {route_id}
+Daily Total Demand: {forecast_data['daily_total']}
+Peak Hours: {json.dumps(forecast_data['peak_hours'])}
+Forecast: {json.dumps(forecast_data['forecast'][:6])}
+
+Respond in JSON format with keys: "summary", "recommendation", "peak_hours"."""
+
+    try:
+        response = bedrock.invoke_model(
+            modelId="amazon.titan-text-express-v1",
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "inputText": prompt,
+                "textGenerationConfig": {
+                    "maxTokenCount": 256,
+                    "temperature": 0.7,
+                },
+            }),
+        )
+        resp_body = json.loads(response["body"].read().decode("utf-8"))
+        text = resp_body.get("results", [{}])[0].get("outputText", "")
+        clean = text.strip().removeprefix("```json").removesuffix("```").strip()
+        return json.loads(clean)
+    except Exception as e:
+        logger.warning("Bedrock insight generation failed: %s", e)
+        return None
+
+
+def _generate_template_insight(route_id: int) -> dict:
+    daily_total = get_total_daily_demand(route_id)
+    peaks = get_peak_hours(route_id)
+    multipliers = get_route_multipliers_summary(route_id)
+
+    summary = ROUTE_SUMMARIES.get(
+        route_id,
+        f"Route {route_id} has a daily estimated demand of {daily_total:,} passengers."
+    )
+    recommendation = RECOMMENDATIONS.get(
+        route_id,
+        "Monitor demand patterns and adjust fleet deployment during peak hours."
+    )
+
+    active_factors = []
+    if multipliers["weekend"] < 1:
+        active_factors.append("Weekend mode active (demand reduced ~25%)")
+    if multipliers["holiday"] != 1.0:
+        label = "increased" if multipliers["holiday"] > 1 else "reduced"
+        active_factors.append(f"Holiday multiplier active: demand {label}")
+    if multipliers["festival"] > 1:
+        active_factors.append("Local festival season boosting demand")
+    if multipliers["weather"] < 1:
+        active_factors.append("Adverse weather reducing demand")
+    if multipliers["weather"] > 1:
+        active_factors.append("Clear weather boosting demand")
+
+    confidence_label = CONFIDENCE_LABELS.get(route_id, ("medium", ""))
+
+    return {
+        "summary": f"{summary} Peak demand reaches {peaks[0]['demand']:,} passengers during {peaks[0]['label'].lower()} (hour {peaks[0]['hour']:02d}:00). Total daily estimate: {daily_total:,} passengers.",
+        "recommendation": recommendation,
+        "peak_hours": [p["hour"] for p in peaks],
+        "confidence": confidence_label[0],
+        "confidence_note": confidence_label[1],
+        "active_factors": active_factors,
+    }
+
+
+def get_insights(route_id: int) -> dict:
+    forecast_data = {
+        "daily_total": get_total_daily_demand(route_id),
+        "peak_hours": get_peak_hours(route_id),
+        "forecast": get_demand_forecast(route_id, 24),
+    }
+
+    bedrock_result = _generate_bedrock_insight(route_id, forecast_data)
+
+    template = _generate_template_insight(route_id)
+
+    if bedrock_result:
+        return {
+            "summary": bedrock_result.get("summary", template["summary"]),
+            "recommendation": bedrock_result.get("recommendation", template["recommendation"]),
+            "peak_hours": bedrock_result.get("peak_hours", template["peak_hours"]),
+            "daily_total": forecast_data["daily_total"],
+            "confidence": template["confidence"],
+            "confidence_note": template["confidence_note"],
+            "active_factors": template["active_factors"],
+            "source": "Amazon Bedrock AI",
+        }
+
+    return {
+        "summary": template["summary"],
+        "recommendation": template["recommendation"],
+        "peak_hours": [p["hour"] for p in forecast_data["peak_hours"]],
+        "daily_total": forecast_data["daily_total"],
+        "confidence": template["confidence"],
+        "confidence_note": template["confidence_note"],
+        "active_factors": template["active_factors"],
+        "source": "Template-based (Bedrock unavailable)",
+    }
+
+
+class TemplateInsightProvider:
     async def generate_insight(
         self,
         scenario_type: str,
         route_name: str,
-        impact: Dict[str, Any],
-        parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Generate simulated AI recommendations and insights."""
-        pass
+        impact: dict,
+        parameters: dict,
+    ) -> dict:
+        templates = {
+            "route_closure": "Route closure on {route} will cause significant disruption. "
+                             "Estimated {affected_buses} buses affected, {affected_passengers} passengers impacted. "
+                             "Alternative route: {alt_route}. Travel time increase of {delay_min} min.",
+            "demand_surge": "Demand surge detected on {route}. Passenger volume increasing by {pct}%. "
+                            "Consider deploying additional buses to maintain service levels.",
+            "severe_weather": "Severe weather affecting {route}. "
+                              "Speed reduced by {pct}%, expect delays of {delay_min} min. "
+                              "Advise passengers to allow extra travel time.",
+            "combined": "Combined disruption on {route}: {sub_impacts}. "
+                        "Multiple factors contributing to {delay_min} min estimated delays.",
+        }
 
-class TemplateInsightProvider(InsightProvider):
-    async def generate_insight(
-        self,
-        scenario_type: str,
-        route_name: str,
-        impact: Dict[str, Any],
-        parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        confidence = "medium"
-        actions = []
-        text = ""
-        
-        if scenario_type == "route_closure":
-            delay_min = impact.get("travel_time_delta_min", 15)
-            alt_route = impact.get("alternative_route", "remaining corridors")
-            
-            if delay_min >= 20:
-                text = (
-                    f"CRITICAL: Corridor {route_name} is closed. Transit operations are severely disrupted. "
-                    f"Rerouting operations via {alt_route} adds an estimated {delay_min:.0f} minutes of travel time. "
-                    f"Recommend deploying 3 additional standby buses to handle the commuter overflow."
-                )
-                confidence = "high"
-                actions = [
-                    f"Activate emergency rerouting plans via {alt_route}",
-                    "Deploy 3 standby buses to adjacent high-capacity routes",
-                    "Issue passenger advisories via radio and mobile apps"
-                ]
-            else:
-                text = (
-                    f"Alert: corridor {route_name} closure has moderate impact. "
-                    f"Rerouting via {alt_route} increases average transit times by {delay_min:.0f} minutes. "
-                    f"Current capacity on alternate corridors can absorb passenger displacement with minor delays."
-                )
-                confidence = "medium"
-                actions = [
-                    f"Reroute affected buses to {alt_route}",
-                    "Monitor congestion levels at transfer terminals"
-                ]
-                
-        elif scenario_type == "demand_surge":
-            pct_increase = parameters.get("demand_increase_pct", 50)
-            occupancy_pct = impact.get("occupancy_delta_pct", 50)
-            buses_needed = max(1, int(pct_increase / 20))
-            
-            if pct_increase >= 50:
-                text = (
-                    f"CRITICAL DEMAND SURGE: Passenger volume on {route_name} has surged by {pct_increase}%. "
-                    f"Occupancy rates are projected to hit {100 + occupancy_pct:.0f}% capacity. "
-                    f"Immediate dispatch of {buses_needed} additional relief fleet buses is required to prevent terminal overload."
-                )
-                confidence = "high"
-                actions = [
-                    f"Dispatch {buses_needed} relief buses immediately",
-                    "Adjust headway intervals from 15 mins to 8 mins",
-                    "Deploy terminal marshals to manage passenger queues"
-                ]
-            else:
-                text = (
-                    f"Notice: Passenger demand on {route_name} is up {pct_increase}%. "
-                    f"Fleet utilization will rise to {80 + occupancy_pct:.0f}% but remains within safety limits. "
-                    f"Minor delays at boarding points expected."
-                )
-                confidence = "medium"
-                actions = [
-                    "Monitor boarding queue build-up at peak terminals",
-                    "Enable dynamic schedule adjustments if queues exceed 30 mins"
-                ]
-                
-        elif scenario_type == "severe_weather":
-            condition = parameters.get("weather_condition", "heavy_rain")
-            speed_drop = impact.get("congestion_delta_pct", 20)
-            delay_min = impact.get("travel_time_delta_min", 10)
-            
-            text = (
-                f"WEATHER ALERT: {condition.replace('_', ' ').title()} conditions along {route_name} "
-                f"have reduced travel speeds by {speed_drop:.0f}%. "
-                f"Transit times are extended by {delay_min:.0f} minutes. Advise all operators to exercise caution."
-            )
-            confidence = "medium"
-            actions = [
-                "Enforce weather-adjusted speed limits (max 40 km/h)",
-                "Increase safety distance intervals between active buses",
-                "Display safety warnings on terminal signage"
-            ]
-            
-        elif scenario_type == "combined":
-            scenario_id = parameters.get("preset_id", "")
-            if "landslide" in scenario_id:
-                text = (
-                    f"DISASTER RECOVERY: Severe landslide has blocked the Marilog corridor (Davao → Kidapawan). "
-                    f"Route is 100% closed. Displacement is causing heavy traffic congestion (+20%) and "
-                    f"overcapacity (+15%) on remaining routes. Deploy 3 alternative route buses via Davao → Digos."
-                )
-                confidence = "high"
-                actions = [
-                    "Declare Marilog corridor route closure and suspend ticketing",
-                    "Deploy 3 alternative route buses via Digos/Cotabato detours",
-                    "Establish emergency commuter shelters at Ecoland Terminal"
-                ]
-            elif "surge" in scenario_id:
-                text = (
-                    f"FESTIVAL MANAGEMENT: Kadayawan Festival demand surge (+50%) active across all Davao corridors. "
-                    f"Total passenger count has doubled. Platform utilization is critical at 95%. "
-                    f"Activate maximum regional fleet schedule (deploy 8 reserve buses across all corridors)."
-                )
-                confidence = "high"
-                actions = [
-                    "Activate all 8 regional reserve buses from depot",
-                    "Implement express shuttle loops between major hubs",
-                    "Cooperate with LGU for priority transit lanes"
-                ]
-            else:  # typhoon
-                text = (
-                    f"REGIONAL CRISIS: Typhoon Mindanao is causing severe storms region-wide with landslides closing the Davao → Mati route. "
-                    f"Average travel times are up by 35 minutes across all corridors. High risk of localized flooding."
-                )
-                confidence = "high"
-                actions = [
-                    "Suspend Davao → Mati corridor operations immediately",
-                    "Implement region-wide speed reduction of 40%",
-                    "Direct active buses to nearest safe terminal hubs"
-                ]
-        else:
-            text = f"Simulation complete. No major anomalies detected for scenario type: {scenario_type}."
-            confidence = "low"
-            actions = ["Maintain normal monitoring schedules"]
-            
+        template = templates.get(scenario_type, "Disruption scenario active on {route}.")
+        delay = impact.get("travel_time_delta_min", 0)
+        pct = impact.get("travel_time_delta_pct", 0)
+        alt = impact.get("alternative_route", "N/A")
+
+        text = template.format(
+            route=route_name,
+            affected_buses=impact.get("affected_buses", 0),
+            affected_passengers=impact.get("affected_passengers", 0),
+            alt_route=alt,
+            delay_min=delay,
+            pct=pct,
+            sub_impacts=parameters.get("description", "multiple events"),
+        )
+
         return {
             "text": text,
-            "type": "recommendation" if confidence == "high" else "info",
-            "confidence": confidence,
-            "suggested_actions": actions
+            "type": "alert" if delay > 15 else "recommendation",
+            "confidence": "high" if scenario_type == "route_closure" else "medium",
+            "suggested_actions": [
+                f"Reroute buses around {route_name}" if "closure" in scenario_type else
+                f"Deploy backup buses to {route_name}",
+                "Notify passengers of expected delays",
+                f"Update ETA predictions for {route_name}",
+            ],
         }
