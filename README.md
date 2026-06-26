@@ -77,15 +77,14 @@ npm run dev
 | **Bus Tooltip ETA** (hover any bus to see ETA to nearest terminal) | ✅ |
 | Corridor Status Panel (capacity %, avg delay, congestion level) | ✅ |
 | Focus Panel (per-corridor metrics) | ✅ |
+| Route Analytics Dashboard (trends, on-time performance) | ✅ |
+| **Demand Intelligence & AI Insights** (24h forecast, KPI cards, charts) | ✅ |
+| **What-If Scenario Simulator** (road closures, demand shocks, severe weather) | ✅ |
+| Incident Intelligence Feed (PAGASA, floods, landslides) | ✅ |
 
 ### Planned
 
-- Incident Intelligence Feed (PAGASA, floods, landslides)
-- AI Demand Intelligence (Kadayawan Festival spikes)
-- Route Analytics Dashboard (trends, on-time performance)
-- What-If Scenario Simulator (road closures, demand shocks)
 - Provincial Mobility Heatmap (terminal hub recommendations)
-- Amazon Bedrock integration (AI-generated insights)
 
 ---
 
@@ -137,6 +136,14 @@ npm run dev
 | GET | `/api/terminals` | List all terminals |
 | GET | `/api/corridors/status` | Per-route aggregate status |
 | GET | `/api/eta?from_terminal_id=&to_terminal_id=` | ETA with delay breakdown |
+| GET | `/api/demand/forecast` | Demand forecast for all routes |
+| GET | `/api/demand/forecast/{route_id}` | 24h demand forecast per route |
+| GET | `/api/demand/insights/{route_id}` | AI-powered demand insight |
+| POST | `/api/scenarios/simulate` | Simulate a disruption scenario |
+| POST | `/api/scenarios/apply` | Apply a scenario preset |
+| POST | `/api/scenarios/reset` | Reset active scenario |
+| GET | `/api/scenarios/presets` | List scenario presets |
+| GET | `/api/incidents` | List active incidents |
 | WS | `/ws/buses` | Live bus position stream |
 
 ---
@@ -145,20 +152,22 @@ npm run dev
 
 ```
 Movmin/
-├── docker-compose.yml     # PostgreSQL + Backend + Frontend
+├── docker-compose.yml     # PostgreSQL + Backend + Frontend + OSRM
 ├── AI_CONTEXT.md          # AI priming prompt for assistants
+├── scripts/
+│   └── setup-osrm.sh      # Automated OSRM data download & processing
 ├── backend/
 │   ├── app/
 │   │   ├── api/           # FastAPI route handlers
 │   │   ├── core/          # Config, database, logging
 │   │   ├── models/        # SQLAlchemy ORM models
 │   │   ├── schemas/       # Pydantic request/response schemas
-│   │   ├── services/      # Business logic (ETA, weather, routing)
-│   │   └── simulation/    # Bus simulation engine + coordinates
+│   │   ├── services/      # Business logic (ETA, weather, routing, insights)
+│   │   └── simulation/    # Bus simulation engine, demand forecasting
 │   └── alembic/           # Database migrations
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/         # Route pages (CorridorMonitor, etc.)
+│   │   ├── pages/         # Route pages (CorridorMonitor, Analytics, etc.)
 │   │   ├── components/    # React components (ETAPanel, layout)
 │   │   ├── hooks/         # Custom hooks (useBusesWebSocket)
 │   │   ├── lib/           # API client, utilities
@@ -198,6 +207,15 @@ Incident Delay:   Sum of active incident delays on the route
 
 For road-following route geometry instead of straight-line waypoints:
 
+### Automated (recommended)
+
+```bash
+./scripts/setup-osrm.sh
+docker compose up -d
+```
+
+### Manual
+
 ```bash
 mkdir -p backend/osrm_data
 curl -L -o backend/osrm_data/philippines-latest.osm.pbf \
@@ -209,8 +227,7 @@ docker run --rm -t -v "$(pwd)/backend/osrm_data:/data" osrm/osrm-backend \
 docker run --rm -t -v "$(pwd)/backend/osrm_data:/data" osrm/osrm-backend \
   osrm-contract /data/philippines-latest.osrm
 
-docker compose up -d osrm
-cd backend && .venv/bin/python app/simulation/reseed.py
+docker compose up -d
 ```
 
 See [docs/OSRM_SETUP.md](docs/OSRM_SETUP.md) for details.
