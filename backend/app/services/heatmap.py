@@ -79,14 +79,48 @@ def get_route_name_map(db: Session) -> Dict[int, str]:
     return {r.id: r.name for r in db.query(Route).all()}
 
 
+SNAP_THRESHOLD_KM = 5.0
+
+
+def _build_route_waypoints_index(routes: List[Route]) -> Dict[int, List[tuple]]:
+    index: Dict[int, List[tuple]] = {}
+    for r in routes:
+        if r.waypoints:
+            index[r.id] = [(wp[0], wp[1]) for wp in r.waypoints if isinstance(wp, (list, tuple)) and len(wp) >= 2]
+    return index
+
+
+def _snap_municipality(mun: Dict, routes: List[Route], route_waypoints: Dict[int, List[tuple]]) -> tuple:
+    closest_dist = float("inf")
+    snapped_lat, snapped_lng = mun["lat"], mun["lng"]
+    for rid, wps in route_waypoints.items():
+        for wp in wps:
+            d = haversine_distance((mun["lat"], mun["lng"]), (wp[0], wp[1]))
+            if d < closest_dist:
+                closest_dist = d
+                snapped_lat, snapped_lng = wp[0], wp[1]
+    return snapped_lat, snapped_lng, closest_dist
+
+
+def _detect_route_associations(mun: Dict, route_waypoints: Dict[int, List[tuple]], route_names: Dict[int, str]) -> List[int]:
+    matching_rids = []
+    for rid, wps in route_waypoints.items():
+        for wp in wps:
+            d = haversine_distance((mun["lat"], mun["lng"]), (wp[0], wp[1]))
+            if d <= SNAP_THRESHOLD_KM:
+                matching_rids.append(rid)
+                break
+    return matching_rids
+
+
 def aggregate_municipality_demand(db: Session) -> List[Dict]:
     routes = db.query(Route).all()
     buses = db.query(Bus).all()
     terminals = db.query(Terminal).all()
     incidents = db.query(Incident).filter(Incident.status == "active").all()
 
-    route_name_map = {r.id: r.name for r in routes}
-    route_id_by_name = {r.name: r.id for r in routes}
+    route_waypoints = _build_route_waypoints_index(routes)
+    route_names: Dict[int, str] = {r.id: r.name for r in routes}
 
     route_buses: Dict[int, List[Bus]] = {}
     for bus in buses:
@@ -104,19 +138,21 @@ def aggregate_municipality_demand(db: Session) -> List[Dict]:
 
     results = []
     for mun in MUNICIPALITIES:
+        snapped_lat, snapped_lng, snap_dist = _snap_municipality(mun, routes, route_waypoints)
+        associated_rids = _detect_route_associations(mun, route_waypoints, route_names)
+        total_possible_routes = max(len(associated_rids), 1)
+
         total_passenger_demand = 0
         total_capacity = 0
         active_routes_set = set()
         total_incident_delay = 0
         bus_count = 0
 
-        for route_name in mun["routes"]:
-            rid = route_id_by_name.get(route_name)
-            if rid is None:
-                continue
-            active_routes_set.add(route_name)
+        for rid in associated_rids:
+            rname = route_names.get(rid, str(rid))
+            active_routes_set.add(rname)
             route_bus_list = route_buses.get(rid, [])
-            active = [b for b in route_bus_list if b.status in ("active", "delayed")]
+            active = [b for b in route_bus_list if b.status in ("active", "normal", "delayed", "stopped", "rerouting", "severely_delayed")]
             bus_count += len(active)
             for b in active:
                 total_passenger_demand += b.occupancy or 0
@@ -133,9 +169,10 @@ def aggregate_municipality_demand(db: Session) -> List[Dict]:
         density_score = min(100, round(density_score * population_factor))
 
         route_count = len(active_routes_set)
-        coverage_score = min(100, round((route_count / max(len(mun["routes"]), 1)) * 100))
+        coverage_score = min(100, round((route_count / total_possible_routes) * 100))
 
-        nearest_terminal_km = _nearest_terminal_distance(mun, terminals)
+        snapped_mun = {"lat": snapped_lat, "lng": snapped_lng}
+        nearest_terminal_km = _nearest_terminal_distance(snapped_mun, terminals)
 
         avg_wait_time = _estimate_wait_time(bus_count, mun["population"])
 
@@ -144,8 +181,8 @@ def aggregate_municipality_demand(db: Session) -> List[Dict]:
 
         results.append({
             "municipality": mun["name"],
-            "lat": mun["lat"],
-            "lng": mun["lng"],
+            "lat": snapped_lat,
+            "lng": snapped_lng,
             "total_demand": total_passenger_demand,
             "active_routes": route_count,
             "bus_count": bus_count,
