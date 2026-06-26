@@ -274,7 +274,7 @@ class SimulationEngine:
                 bus.current_lng = pos[1]
                 bus.speed = round(state["speed"], 1)
                 bus.occupancy = state["occupancy"]
-                bus.status = state["status"]
+                bus.status = state["status"].lower().replace(" ", "_")
                 bus.last_updated = datetime.now()
 
                 # Gather data to broadcast

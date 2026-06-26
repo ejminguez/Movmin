@@ -17,7 +17,16 @@ _weather_cache: Dict[int, Tuple[str, float]] = {}
 _last_update: float = 0
 
 
-def get_weather_for_route(route_id: int) -> dict:
+def get_weather_for_route(route_id: int, ignore_overrides: bool = False) -> dict:
+    if not ignore_overrides:
+        from app.services.scenario import scenario_manager
+        overrides = scenario_manager.get_overrides(route_id)
+        if overrides and "weather" in overrides:
+            cond = overrides["weather"]
+            result = dict(WEATHER_CONDITIONS.get(cond, WEATHER_CONDITIONS["clear"]))
+            result["_key"] = cond
+            return result
+
     global _last_update
     now = time.time()
     if now - _last_update > 30:
@@ -43,3 +52,7 @@ def get_worst_weather(conditions: List[dict]) -> dict:
 
 def get_all_weather() -> Dict[int, dict]:
     return {rid: dict(WEATHER_CONDITIONS[cond]) for rid, (cond, _) in _weather_cache.items()}
+
+# Weather-related incident types that should only appear during adverse weather
+WEATHER_INCIDENT_TYPES = {"Flood Warning", "Weather Advisory"}
+SEVERE_WEATHER_THRESHOLD = "light_rain"  # minimum condition for weather incidents

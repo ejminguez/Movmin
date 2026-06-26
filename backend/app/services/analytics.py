@@ -25,7 +25,7 @@ def take_snapshot(db: Session):
             # Query active buses on route
             active_buses = db.query(Bus).filter(
                 Bus.route_id == route.id,
-                Bus.status.in_(["active", "delayed"])
+                Bus.status.in_(["active", "normal", "delayed", "stopped", "rerouting", "severely_delayed"])
             ).all()
 
             active_bus_count = len(active_buses)
