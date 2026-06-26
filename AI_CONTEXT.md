@@ -31,6 +31,25 @@ Build an MVP prototype to improve provincial transit (passengers, operators, LGU
 - **ETA Panel** (`ETAPanel.tsx`) — Floating panel with origin/destination selectors, delay breakdown bars, and auto-polling every 5s.
 - **Bus Tooltip ETA** — Each bus marker shows live "ETA to nearest terminal" with dynamic content refresh.
 
+## Completed — Phase 3: Incident Intelligence Feed
+- **Incident Management**
+  - **Models:** `Incident` model tracks ID, type, severity, coordinates, route, delay, status, timestamps
+  - **API:** POST /api/incidents to create, GET /api/incidents to list active
+  - **Schemas:** Pydantic schemas for incident creation and listing
+  - **Seed:** `incidents.py` seeded with 3 sample incidents (2 minor delays, 1 moderate accident)
+
+- **Corridor ETA with Incidents**
+  - ETA engine now includes incident delays: `total_delay = traffic_delay + weather_delay + incident_delay`
+  - Incident impact is cumulative across all active incidents on route
+  - Incident delays expire automatically after 120 minutes
+
+- **UI Integration**
+  - **CorridorMonitor:** Displays "Active Incidents" count and lists incidents with location markers
+  - **ETAPanel:** Shows incident delay in breakdown bars when present
+  - **WebSocket:** Pushes incident updates to frontend via /ws/buses
+  - **Bus Tooltip:** Now shows: "ETA: XX min (due to Y traffic, Z weather, A incidents)"
+
+
 ## 3. Tech Stack
 - **Frontend:** React 19 + Vite + TypeScript 6, styled with TailwindCSS v4 and shadcn/ui
 - **Mapping/Charts:** MapLibre GL (interactive transit maps), Recharts (data visualizations)
