@@ -168,6 +168,43 @@ export interface ScenarioResult {
   insight: ScenarioInsight;
 }
 
+export interface DemandForecastHour {
+  hour: number;
+  predicted_demand: number;
+  confidence: number;
+  weather_impact: string | null;
+}
+
+export interface DemandForecast {
+  route_id: number;
+  route_name: string;
+  color: string;
+  forecast_date: string;
+  generated_at: string;
+  forecasts: DemandForecastHour[];
+}
+
+export interface DemandForecastAll {
+  routes: DemandForecast[];
+}
+
+export interface DemandPeak {
+  hour: number;
+  demand: number;
+  label: string;
+}
+
+export interface DemandInsight {
+  route_id: number;
+  route_name: string;
+  color: string;
+  daily_total: number;
+  peak_hours: DemandPeak[];
+  summary: string;
+  recommendation: string;
+  source: string;
+}
+
 export interface ScenarioSimulateRequest {
   type: "route_closure" | "demand_surge" | "severe_weather" | "combined";
   route_id?: number;
@@ -177,4 +214,123 @@ export interface ScenarioSimulateRequest {
     weather_condition?: string;
     route_ids?: number[];
   };
+}
+
+export interface HeatmapFeatureProperties {
+  municipality: string;
+  density_score: number;
+  demand_level: string;
+  underserved: boolean;
+  coverage_score: number;
+  active_routes: number;
+  bus_count: number;
+  total_demand: number;
+  average_wait_time: number;
+  nearest_terminal_km: number;
+  population: number;
+  is_corridor?: boolean;
+  color?: string;
+}
+
+export interface HeatmapGeoJSON {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+    properties: HeatmapFeatureProperties;
+  }[];
+}
+
+export interface MunicipalityDemand {
+  municipality: string;
+  lat: number;
+  lng: number;
+  total_demand: number;
+  active_routes: number;
+  bus_count: number;
+  density_score: number;
+  coverage_score: number;
+  demand_level: string;
+  average_wait_time: number;
+  nearest_terminal_km: number;
+  underserved: boolean;
+  underserved_reason: string | null;
+  population: number;
+  incident_delay_min: number;
+}
+
+export interface UnderservedArea {
+  municipality: string;
+  density_score: number;
+  coverage_score: number;
+  reason: string;
+  severity: string;
+  average_wait_time: number;
+  active_routes: number;
+  population: number;
+}
+
+export interface TerminalRecommendation {
+  municipality: string;
+  lat: number;
+  lng: number;
+  priority: string;
+  priority_score: number;
+  reason: string;
+  density_score: number;
+  population: number;
+  nearest_terminal_km: number;
+  expected_impact: string;
+}
+
+export interface DemandHotspot {
+  municipality: string;
+  lat: number;
+  lng: number;
+  density_score: number;
+  demand_level: string;
+  underserved: boolean;
+}
+
+export interface DemandSummary {
+  highest_demand_municipality: string;
+  highest_demand_score: number;
+  average_density_score: number;
+  most_utilized_corridor: string;
+  most_utilized_corridor_score: number;
+  fastest_growing_area: string;
+  underserved_count: number;
+  terminal_recommendations_count: number;
+  total_municipalities: number;
+}
+
+export interface AIInsight {
+  municipality: string;
+  reason: string;
+  severity: string;
+}
+
+export interface AITerminalRec {
+  location: string;
+  reason: string;
+  priority: string;
+  expected_impact: string;
+}
+
+export interface AICorridorObs {
+  corridor: string;
+  score: number;
+  level: string;
+}
+
+export interface PlanningInsights {
+  summary: string;
+  underserved_areas: AIInsight[];
+  terminal_recommendations: AITerminalRec[];
+  corridor_observations: AICorridorObs[];
+  ai_generated: boolean;
+  fallback: boolean;
 }

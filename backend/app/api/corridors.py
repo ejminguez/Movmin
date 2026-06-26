@@ -19,7 +19,8 @@ def get_corridors_status(db: Session = Depends(get_db)):
 
     for route in routes:
         buses = db.query(Bus).filter(Bus.route_id == route.id).all()
-        active_buses = [b for b in buses if b.status in ("active", "delayed")]
+        ACTIVE_STATUSES = {"active", "normal", "delayed", "stopped", "rerouting", "severely_delayed"}
+        active_buses = [b for b in buses if b.status in ACTIVE_STATUSES]
 
         active_bus_count = len(active_buses)
 

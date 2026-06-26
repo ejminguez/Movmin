@@ -11,5 +11,7 @@ class Settings(BaseSettings):
     supabase_publishable_key: str | None = None
     supabase_secret_key: str | None = None
 
+    osrm_url: str = "http://localhost:5005"
+
 
 settings = Settings()

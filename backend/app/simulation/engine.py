@@ -256,6 +256,14 @@ class SimulationEngine:
                             state["direction"] = True
                             state["pause_ticks"] = 5  # Pause for 10 seconds (5 ticks)
 
+                # Fluctuate occupancy slightly each tick to reflect passenger activity
+                if state["pause_ticks"] == 0:
+                    delta = random.choice([-2, -1, 0, 0, 1, 2])
+                    state["occupancy"] = max(5, min(bus.capacity, state["occupancy"] + delta))
+                    if random.random() < 0.03:
+                        surge = random.randint(-10, 15)
+                        state["occupancy"] = max(5, min(bus.capacity, state["occupancy"] + surge))
+
                 # Ensure closed routes keep speed 0 and status STOPPED
                 overrides = scenario_manager.get_overrides(bus.route_id)
                 if overrides and overrides.get("status") == "CLOSED":
@@ -274,7 +282,7 @@ class SimulationEngine:
                 bus.current_lng = pos[1]
                 bus.speed = round(state["speed"], 1)
                 bus.occupancy = state["occupancy"]
-                bus.status = state["status"]
+                bus.status = state["status"].lower().replace(" ", "_")
                 bus.last_updated = datetime.now()
 
                 # Gather data to broadcast

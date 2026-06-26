@@ -16,12 +16,20 @@
                                          └───────────────────┘
 ```
 
+## Automated Setup
+
+```bash
+./scripts/setup-osrm.sh
+```
+
+Downloads the Philippines OSM extract, runs `osrm-extract` + `osrm-contract`, and verifies the container responds to route queries. Steps are idempotent — completed steps are skipped on re-run.
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS) or Docker Engine (Linux)
 - ~2 GB free disk space for the OSM data + processed graph
 
-## Setup
+## Manual Setup
 
 ### 1. Download OSM Data
 
@@ -64,7 +72,7 @@ This takes 3–10 minutes and produces files like `.osrm.hsgr`, `.osrm.edges`, e
 The `docker-compose.yml` at the project root runs OSRM on port **5005** (mapped from container port 5000):
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 Verify it is running:
@@ -107,9 +115,11 @@ curl -s "http://localhost:5005/route/v1/driving/120.9842,14.5995;121.0193,14.561
 
 ### Seed Routes into Database
 
+After OSRM is running, reseed routes to fetch road-following waypoints:
+
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python app/simulation/reseed.py
+python -m app.simulation.reseed
 ```
 
 This queries OSRM for each defined corridor and stores the road-following waypoints in the `routes.waypoints` JSON column.
@@ -118,8 +128,8 @@ This queries OSRM for each defined corridor and stores the road-following waypoi
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
-| `curl: connection refused` | OSRM container not started | `docker-compose up -d` |
-| Container exits immediately | Missing `.osrm` graph files | Run `osrm-extract` + `osrm-contract` |
+| `curl: connection refused` | OSRM container not started | `docker compose up -d` |
+| Container exits immediately | Missing `.osrm` graph files | Run `./scripts/setup-osrm.sh` |
 | Port 5005 already in use | Another service on that port | Change the host port in `docker-compose.yml` |
 | `osrm-extract` fails with "out of memory" | Default Docker memory too low | Increase Docker Desktop memory to 4 GB (Settings → Resources → Advanced) |
 | Slow first request | Cold start — OSRM loads graph into RAM | Wait ~30–60s after container start. First request is always slowest. |
@@ -144,15 +154,15 @@ docker run --rm -i -p 5005:5000 -v "$(pwd)/backend/osrm_data:/data" osrm/osrm-ba
 
 ## Updating OSM Data
 
-1. Download a fresh `.pbf` extract (same URL as Step 1).
-2. Stop the container: `docker-compose stop osrm`
-3. Re-run `osrm-extract` and `osrm-contract`.
-4. Start the container: `docker-compose up -d`
-5. Re-seed routes: `cd backend && PYTHONPATH=. .venv/bin/python app/simulation/reseed.py`
+1. Download a fresh `.pbf` extract: `./scripts/setup-osrm.sh`
+2. Stop the container: `docker compose stop osrm`
+3. Re-run `osrm-extract` and `osrm-contract` (script skips existing files — delete the old ones first)
+4. Start the stack: `docker compose up -d`
+5. Re-seed routes: `cd backend && python -m app.simulation.reseed`
 
 ## Verification Checklist
 
-- [ ] `docker-compose ps` shows `osrm-backend` as `Up`
+- [ ] `docker compose ps` shows `osrm-backend` as `Up`
 - [ ] `curl http://localhost:5005/route/v1/driving/121.0,14.5;121.1,14.6?overview=false` returns `{"code":"Ok"}`
 - [ ] `GET /api/routes` returns waypoints with 100+ coordinate pairs per route
 - [ ] Map displays curved road-following polylines instead of straight lines
