@@ -97,6 +97,7 @@ export interface Incident {
   affected_routes: string[];
   estimated_delay_minutes: number;
   status: string;
+  source: string;
   created_at: string;
   expires_at: string | null;
 }

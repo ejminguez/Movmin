@@ -193,7 +193,7 @@ class SimulationEngine:
                         incident_types = {inc.incident_type for inc in route_incidents}
                         
                         if "Road Closure" in incident_types:
-                            status = "STOPPED" if (bus.id % 2 == 0) else "REROUTING"
+                            status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
                         elif "Landslide" in incident_types:
                             status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
                         elif "Flood Warning" in incident_types or "Weather Advisory" in incident_types:
@@ -320,6 +320,7 @@ class SimulationEngine:
                     "affected_routes": affected_routes,
                     "estimated_delay_minutes": inc.estimated_delay_min or 0,
                     "status": inc.status or "active",
+                    "source": inc.source or "simulation",
                     "created_at": inc.created_at.isoformat() if inc.created_at else None,
                     "expires_at": inc.expires_at.isoformat() if inc.expires_at else None,
                 })

@@ -47,7 +47,7 @@ export default function ScenarioPage() {
     const s = status.toLowerCase().replace(/[\s_]/g, "_");
     if (s === "stopped") return "#71717a";
     if (s === "severely_delayed" || s === "closed") return "#ef4444";
-    if (s === "delayed" || s === "minor_delay" || s === "rerouting") return "#f59e0b";
+    if (s === "delayed" || s === "minor_delay") return "#f59e0b";
     return "#10b981";
   }
 
@@ -328,22 +328,25 @@ export default function ScenarioPage() {
     if (!route || !route.waypoints || route.waypoints.length === 0) return;
     const midIdx = Math.floor(route.waypoints.length / 2);
     const midPoint = route.waypoints[midIdx];
+    const parsedDuration = incDuration ? parseInt(incDuration, 10) : null;
     const body = {
       incident_type: incType,
       severity: incSeverity,
-      title: `${incType} on ${route.name}`,
+      title: `[Manual] ${incType} on ${route.name}`,
       description: `Custom ${incType.toLowerCase()} affecting ${route.name} corridor.`,
       lat: midPoint[0],
       lng: midPoint[1],
       affected_route_id: incRouteId,
       estimated_delay_min: incDelay,
-      duration_minutes: incDuration ? parseInt(incDuration, 10) : null,
+      duration_minutes: parsedDuration && !isNaN(parsedDuration) ? parsedDuration : null,
+      source: "manual",
     };
     try {
       await api.createIncident(body);
       setShowForm(false);
     } catch (err) {
       console.error("Failed to create incident:", err);
+      alert("Failed to add incident. Make sure all fields are valid.");
     }
   };
 
@@ -533,6 +536,8 @@ export default function ScenarioPage() {
                 incident.type === "Flood Warning" ? "#3b82f6" :
                 incident.type === "Road Closure" ? "#71717a" :
                 incident.type === "Weather Advisory" ? "#f97316" : "#ef4444";
+              const routeName = incident.affected_routes?.[0] || "Unknown";
+              const isManual = incident.source === "manual";
               return (
                 <div
                   key={incident.id}
@@ -545,6 +550,12 @@ export default function ScenarioPage() {
                         <div className="text-[11px] font-semibold text-zinc-200 truncate">{incident.title}</div>
                         <div className="text-[9px] text-zinc-500 mt-0.5">
                           {incident.type} · {incident.severity} · +{incident.estimated_delay_minutes} min
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[8px] text-zinc-600 font-medium">{routeName}</span>
+                          {isManual && (
+                            <span className="text-[8px] font-bold text-amber-500 bg-amber-500/10 px-1 rounded">MANUAL</span>
+                          )}
                         </div>
                       </div>
                     </div>

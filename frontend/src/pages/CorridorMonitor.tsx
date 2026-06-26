@@ -565,7 +565,7 @@ export default function CorridorMonitor() {
     const s = status.toLowerCase().replace(/[\s_]/g, "_");
     if (s === "stopped") return "#71717a";
     if (s === "severely_delayed" || s === "closed") return "#ef4444";
-    if (s === "delayed" || s === "minor_delay" || s === "rerouting") return "#f59e0b";
+    if (s === "delayed" || s === "minor_delay") return "#f59e0b";
     return "#10b981";
   }
 
