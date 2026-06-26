@@ -2,9 +2,11 @@ import logging
 import httpx
 from typing import List, Tuple
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-OSRM_BASE_URL = "http://localhost:5005"
+OSRM_BASE_URL = settings.osrm_url
 
 async def get_route(
     origin: Tuple[float, float],

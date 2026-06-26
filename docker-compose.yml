@@ -15,6 +15,16 @@ services:
       timeout: 5s
       retries: 5
 
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: osrm-backend
+    ports:
+      - "5005:5000"
+    volumes:
+      - ./backend/osrm_data:/data
+    command: osrm-routed --algorithm ch /data/philippines-latest.osrm
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -23,6 +33,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/movmin
+      OSRM_URL: http://osrm:5000
     depends_on:
       db:
         condition: service_healthy
