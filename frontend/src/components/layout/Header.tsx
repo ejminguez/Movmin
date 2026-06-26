@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Map, Route, AlertTriangle, BarChart3, Cog, ChevronDown, ChevronUp, FlaskConical } from "lucide-react";
+import { Map, Route, BarChart3, ChevronDown, ChevronUp, FlaskConical } from "lucide-react";
 import movemin_logo from "@/assets/movemin-logo.svg";
 
 const navItems = [
@@ -8,8 +8,7 @@ const navItems = [
   { label: "Route Analytics", to: "/route-analytics", icon: Route },
   { label: "Demand Intelligence", to: "/analytics", icon: BarChart3 },
   { label: "Scenario Simulator", to: "/scenarios", icon: FlaskConical },
-  { label: "Incidents", to: "/incidents", icon: AlertTriangle },
-  { label: "Settings", to: "/settings", icon: Cog },
+
 ];
 
 export function Header() {
