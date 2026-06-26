@@ -87,7 +87,12 @@ def update_incidents_simulation(db: Session):
                 continue
 
         # Expire weather incidents that no longer match current weather
-        if inc.incident_type in WEATHER_INCIDENT_TYPES and inc.affected_route_id:
+        # (Skip manual incidents — user explicitly chose them)
+        if (
+            inc.incident_type in WEATHER_INCIDENT_TYPES
+            and inc.affected_route_id
+            and not (inc.title and inc.title.startswith("[Manual]"))
+        ):
             weather_key = _get_route_weather_key(inc.affected_route_id)
             allowed = _get_allowed_incident_types(weather_key)
             if inc.incident_type not in allowed:
