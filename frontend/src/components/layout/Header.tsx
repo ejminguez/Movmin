@@ -6,7 +6,10 @@ import movemin_logo from "@/assets/movemin-logo.svg";
 const navItems = [
   { label: "Corridor Monitor", to: "/", icon: Map },
   { label: "Route Analytics", to: "/route-analytics", icon: Route },
+  { label: "Demand Intelligence", to: "/analytics", icon: BarChart3 },
   { label: "Scenario Simulator", to: "/scenarios", icon: FlaskConical },
+  { label: "Incidents", to: "/incidents", icon: AlertTriangle },
+  { label: "Settings", to: "/settings", icon: Cog },
 ];
 
 export function Header() {
