@@ -31,29 +31,20 @@ Build an MVP prototype to improve provincial transit (passengers, operators, LGU
 - **ETA Panel** (`ETAPanel.tsx`) — Floating panel with origin/destination selectors, delay breakdown bars, and auto-polling every 5s.
 - **Bus Tooltip ETA** — Each bus marker shows live "ETA to nearest terminal" with dynamic content refresh.
 
-### Completed — Phase 3: Demand Intelligence & AI Insights
+## Completed — Phase 3: Demand Intelligence, AI Insights & Provincial Heatmap
 - **Demand Simulation** (`simulation/demand.py`) — 24-hour passenger demand simulation per route with:
-  - Base demand anchored to corridor characteristics (Tagum=1500 highest, Mati=600 lowest due to distance)
+  - Base demand anchored to corridor characteristics (Tagum=1500 highest, Mati=600 lowest)
   - Hourly profile with morning peak (6-8AM), midday peak (11AM-1PM), evening peak (4-6PM)
   - Philippine holiday calendar with demand multipliers (Kadayawan Aug 16-20 = 1.5x, Araw ng Davao = 1.2x)
-  - Local festival bonuses per route (Paskuhan sa Tagum, Sambolawan Festival Mati, etc.)
-  - Weather impact from existing weather service (storm = 0.4x, clear = 1.05x)
-  - Weekend reduction (0.75x), seasonal adjustment (holiday season = 1.15x)
+  - Local festival bonuses per route, weather impact, weekend reduction, seasonal adjustment
   - Confidence decreases with forecast distance (1.0 → 0.3 over 24 hours)
-- **Demand API** (`api/demand.py`) — Three endpoints:
-  - `GET /api/demand/forecast/{route_id}` — 24-hour demand prediction with hourly breakdown
-  - `GET /api/demand/forecast` — Aggregate forecasts for all 5 routes
-  - `GET /api/demand/insights/{route_id}` — AI-powered operational recommendations
-- **AI Insights Engine** (`services/insights.py`) — Dual-mode insight generation:
-  - **Amazon Bedrock** (`amazon.titan-text-express-v1`): When AWS credentials configured, calls Bedrock with demand data and parses JSON response
-  - **Template Fallback**: Per-route hardcoded summaries, recommendations, and confidence labels when Bedrock unavailable
-  - Auto-detects Bedrock availability via boto3; logs status on startup
-- **AnalyticsPage** (`frontend/src/pages/AnalyticsPage.tsx`) — Demand intelligence dashboard with:
-  - Route selector tabs (matching Phase 2 pattern)
-  - 4 KPI cards: Daily Total, Morning/Midday/Evening peak demand values
-  - 24-hour bar chart showing predicted demand per hour
-  - Demand trend line chart with confidence overlay (dashed green line)
-  - AI insight card with dynamic icon (Brain for Bedrock, Lightbulb for template), source badge, summary text, and recommendation callout box
+- **Demand API** (`api/demand.py`) — Forecast endpoints for all routes and AI-powered insights
+- **AI Insights Engine** (`services/insights.py`) — Dual-mode: Amazon Bedrock with template fallback
+- **AnalyticsPage** — Demand intelligence dashboard with Recharts (bar + line charts), KPI cards, AI insight card
+- **Provincial Mobility Heatmap** (`services/heatmap.py`, `api/heatmap.py`) — 22-municipality GeoJSON demand layer with density scoring, underserved detection, terminal recommendations
+- **Planning Insights Panel** (`PlanningInsightsPanel.tsx`) — Side panel with AI/rule-based planning analysis, underserved areas, terminal priority recommendations, demand hotspots
+- **Corridor ETA with Incidents** — ETA engine includes incident delays (cumulative, auto-expiring)
+- **WebSocket** — Pushes bus + incident updates to frontend via /ws/buses
 
 ## 3. Tech Stack
 - **Frontend:** React 19 + Vite + TypeScript 6, styled with TailwindCSS v4 and shadcn/ui

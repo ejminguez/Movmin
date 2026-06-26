@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Optional
 
 from app.simulation.demand import (
@@ -10,6 +11,9 @@ from app.simulation.demand import (
 )
 
 logger = logging.getLogger(__name__)
+
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "apac.amazon.nova-lite-v1:0")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 
 ROUTE_SUMMARIES: dict[int, str] = {
     1: "Tagum Corridor — high-volume inter-city route serving the Davao–Tagum daily commute.",
@@ -39,11 +43,9 @@ try:
     import boto3
     from botocore.exceptions import NoCredentialsError, ClientError
 
-    session = boto3.Session()
-    region = session.region_name or "ap-southeast-1"
-    bedrock = boto3.client("bedrock-runtime", region_name=region)
+    bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
     BEDROCK_AVAILABLE = True
-    logger.info("Amazon Bedrock client initialized (region=%s).", region)
+    logger.info("Amazon Bedrock client initialized (model=%s, region=%s).", BEDROCK_MODEL_ID, AWS_REGION)
 except Exception:
     bedrock = None
     BEDROCK_AVAILABLE = False
@@ -67,22 +69,34 @@ Forecast: {json.dumps(forecast_data['forecast'][:6])}
 Respond in JSON format with keys: "summary", "recommendation", "peak_hours"."""
 
     try:
+        native_request = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}],
+                }
+            ],
+            "inferenceConfig": {
+                "max_new_tokens": 1000,
+                "temperature": 0.3,
+            },
+        }
+
         response = bedrock.invoke_model(
-            modelId="amazon.titan-text-express-v1",
-            contentType="application/json",
-            accept="application/json",
-            body=json.dumps({
-                "inputText": prompt,
-                "textGenerationConfig": {
-                    "maxTokenCount": 256,
-                    "temperature": 0.7,
-                },
-            }),
+            modelId=BEDROCK_MODEL_ID,
+            body=json.dumps(native_request),
         )
-        resp_body = json.loads(response["body"].read().decode("utf-8"))
-        text = resp_body.get("results", [{}])[0].get("outputText", "")
-        clean = text.strip().removeprefix("```json").removesuffix("```").strip()
-        return json.loads(clean)
+
+        response_body = json.loads(response["body"].read())
+        content = response_body.get("output", {}).get("message", {}).get("content", [])
+        if content:
+            text_parts = [c["text"] for c in content if c.get("text")]
+            full_text = "\n".join(text_parts)
+            clean = full_text.strip().removeprefix("```json").removesuffix("```").strip()
+            return json.loads(clean)
+
+        logger.warning("Bedrock response had unexpected structure: %s", response_body)
+        return None
     except Exception as e:
         logger.warning("Bedrock insight generation failed: %s", e)
         return None

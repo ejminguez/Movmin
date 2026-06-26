@@ -3,13 +3,24 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "@/lib/api";
 import { useBusesWebSocket } from "@/hooks/useBusesWebSocket";
-import type { Route, Terminal, Incident, CorridorStatusResponse, BusETAResponse } from "@/types";
+import type { Route, Terminal, Incident, CorridorStatusResponse, BusETAResponse, HeatmapGeoJSON, HeatmapFeatureProperties } from "@/types";
 import {
   MapPin, Info, ArrowUpRight, CheckCircle2, AlertTriangle, AlertCircle, Clock, TriangleAlert,
+  Lightbulb, Layers,
 } from "lucide-react";
 import ETAPanel from "@/components/ETAPanel";
 import IncidentFeedPanel from "@/components/IncidentFeedPanel";
 import IncidentDetailCard from "@/components/IncidentDetailCard";
+import PlanningInsightsPanel from "@/components/PlanningInsightsPanel";
+
+const HEATMAP_COLORS = [
+  "rgba(34,197,94,0)",
+  "rgb(34,197,94)",
+  "rgb(132,204,22)",
+  "rgb(234,179,8)",
+  "rgb(249,115,22)",
+  "rgb(239,68,68)",
+];
 
 export default function CorridorMonitor() {
   const { buses, incidents, isConnected } = useBusesWebSocket();
@@ -19,16 +30,19 @@ export default function CorridorMonitor() {
   const [busEtas, setBusEtas] = useState<Record<number, BusETAResponse>>({});
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"corridors" | "incidents">("corridors");
+  const [activeTab, setActiveTab] = useState<"corridors" | "incidents" | "planning">("corridors");
   const [lastSynced, setLastSynced] = useState<Date>(new Date());
   const [showEtaPanel, setShowEtaPanel] = useState(false);
-  
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapData, setHeatmapData] = useState<HeatmapGeoJSON | null>(null);
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
-  
+
   const routesAddedRef = useRef<boolean>(false);
   const terminalsAddedRef = useRef<boolean>(false);
+  const heatmapLayersAddedRef = useRef<boolean>(false);
   const busMarkersRef = useRef<{ [id: number]: maplibregl.Marker }>({});
   const busPopupsRef = useRef<{ [id: number]: maplibregl.Popup }>({});
   const incidentMarkersRef = useRef<{ [id: string]: maplibregl.Marker }>({});
@@ -37,14 +51,16 @@ export default function CorridorMonitor() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [routesData, terminalsData, corridorsData] = await Promise.all([
+        const [routesData, terminalsData, corridorsData, heatmap] = await Promise.all([
           api.get<Route[]>("/api/routes"),
           api.get<Terminal[]>("/api/terminals"),
           api.get<CorridorStatusResponse[]>("/api/corridors/status"),
+          api.get<HeatmapGeoJSON>("/api/heatmap"),
         ]);
         setRoutes(routesData);
         setTerminals(terminalsData);
         setCorridors(corridorsData);
+        setHeatmapData(heatmap);
         if (corridorsData.length > 0) {
           setSelectedRouteId(corridorsData[0].route_id);
         }
@@ -60,17 +76,21 @@ export default function CorridorMonitor() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const corridorsData = await api.get<CorridorStatusResponse[]>("/api/corridors/status");
+        const [corridorsData, heatmap] = await Promise.all([
+          api.get<CorridorStatusResponse[]>("/api/corridors/status"),
+          api.get<HeatmapGeoJSON>("/api/heatmap"),
+        ]);
         setCorridors(corridorsData);
+        setHeatmapData(heatmap);
         setLastSynced(new Date());
       } catch (err) {
-        console.error("Error polling corridors status:", err);
+        console.error("Error polling:", err);
       }
     }, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // 2.5 Fetch bus ETAs periodically — centralized, no client-side ETA calculation
+  // 2.5 Fetch bus ETAs periodically
   useEffect(() => {
     const fetchBusEtas = async () => {
       const etaMap: Record<number, BusETAResponse> = {};
@@ -125,9 +145,8 @@ export default function CorridorMonitor() {
     routes.forEach((route) => {
       if (!route.waypoints || route.waypoints.length === 0) return;
 
-      const coords = route.waypoints.map((w: number[]) => [w[1], w[0]]); // [lng, lat]
+      const coords = route.waypoints.map((w: number[]) => [w[1], w[0]]);
 
-      // Add route source
       map.addSource(`route-${route.id}`, {
         type: "geojson",
         data: {
@@ -140,15 +159,11 @@ export default function CorridorMonitor() {
         },
       });
 
-      // Add route line layer
       map.addLayer({
         id: `route-layer-${route.id}`,
         type: "line",
         source: `route-${route.id}`,
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
+        layout: { "line-join": "round", "line-cap": "round" },
         paint: {
           "line-color": route.color,
           "line-width": 4,
@@ -156,27 +171,18 @@ export default function CorridorMonitor() {
         },
       });
 
-      // Add a wider transparent layer for easier clicking
       map.addLayer({
         id: `route-click-layer-${route.id}`,
         type: "line",
         source: `route-${route.id}`,
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": "transparent",
-          "line-width": 15,
-        },
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "transparent", "line-width": 15 },
       });
 
-      // Click handler
       map.on("click", `route-click-layer-${route.id}`, () => {
         setSelectedRouteId(route.id);
       });
 
-      // Pointer cursor on hover
       map.on("mouseenter", `route-click-layer-${route.id}`, () => {
         map.getCanvas().style.cursor = "pointer";
       });
@@ -218,6 +224,137 @@ export default function CorridorMonitor() {
     terminalsAddedRef.current = true;
   }, [map, isMapLoaded, terminals]);
 
+  // 5.5 Heatmap layer management
+  useEffect(() => {
+    if (!map || !isMapLoaded || !heatmapData) return;
+
+    const sourceId = "heatmap-source";
+    const circleLayerId = "heatmap-circle-layer";
+    const labelLayerId = "heatmap-label-layer";
+    const hotspotLayerId = "heatmap-hotspot-layer";
+
+    if (!map.getSource(sourceId)) {
+      map.addSource(sourceId, {
+        type: "geojson",
+        data: heatmapData,
+      });
+
+      map.addLayer({
+        id: circleLayerId,
+        type: "circle",
+        source: sourceId,
+        filter: ["!=", ["get", "is_corridor"], true],
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["get", "density_score"],
+            0, 12,
+            50, 22,
+            100, 35,
+          ],
+          "circle-color": [
+            "interpolate", ["linear"], ["get", "density_score"],
+            0, "#22c55e",
+            25, "#84cc16",
+            50, "#eab308",
+            75, "#f97316",
+            100, "#ef4444",
+          ],
+          "circle-opacity": 0.55,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": [
+            "interpolate", ["linear"], ["get", "density_score"],
+            0, "#22c55e88",
+            50, "#eab30888",
+            100, "#ef444488",
+          ],
+        },
+      });
+
+      map.addLayer({
+        id: labelLayerId,
+        type: "symbol",
+        source: sourceId,
+        filter: ["!=", ["get", "is_corridor"], true],
+        layout: {
+          "text-field": ["concat", ["get", "municipality"], "\n", ["to-string", ["get", "density_score"]]],
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-size": 9,
+          "text-offset": [0, -1.8],
+          "text-anchor": "bottom",
+          "text-optional": true,
+        },
+        paint: {
+          "text-color": "#e4e4e7",
+          "text-halo-color": "#09090b",
+          "text-halo-width": 2,
+          "text-opacity": 0.85,
+        },
+      });
+
+      map.addLayer({
+        id: hotspotLayerId,
+        type: "symbol",
+        source: sourceId,
+        filter: ["all", [">=", ["get", "density_score"], 70], ["!=", ["get", "is_corridor"], true]],
+        layout: {
+          "text-field": "🔥",
+          "text-size": 16,
+          "text-offset": [1.2, -1.2],
+          "text-optional": true,
+        },
+        paint: {
+          "text-opacity": 0.9,
+        },
+      });
+
+      map.on("click", circleLayerId, (e) => {
+        if (e.features && e.features[0]) {
+          const props = e.features[0].properties as unknown as HeatmapFeatureProperties;
+          if (props && props.municipality) {
+            new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+              .setLngLat((e.features[0].geometry as any).coordinates)
+              .setHTML(`
+                <div class="p-2.5 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[200px]">
+                  <div class="font-bold text-sm text-amber-500 mb-1">${props.municipality}</div>
+                  <div class="space-y-0.5">
+                    <div><span class="text-zinc-500">Demand Score:</span> <span class="font-bold">${props.density_score}</span></div>
+                    <div><span class="text-zinc-500">Level:</span> <span class="font-bold uppercase text-[10px] ${props.density_score >= 70 ? "text-red-400" : props.density_score >= 40 ? "text-yellow-400" : "text-green-400"}">${props.demand_level}</span></div>
+                    <div><span class="text-zinc-500">Coverage:</span> ${props.coverage_score}%</div>
+                    <div><span class="text-zinc-500">Routes:</span> ${props.active_routes}</div>
+                    <div><span class="text-zinc-500">Bus Count:</span> ${props.bus_count}</div>
+                    <div><span class="text-zinc-500">Wait Time:</span> ${props.average_wait_time} min</div>
+                    <div><span class="text-zinc-500">Nearest Terminal:</span> ${props.nearest_terminal_km} km</div>
+                    ${props.underserved ? '<div class="mt-1 text-[9px] font-bold text-red-500 bg-red-950/50 px-1 py-0.5 rounded inline-block">UNDERSERVED</div>' : ""}
+                  </div>
+                </div>
+              `)
+              .addTo(map);
+          }
+        }
+      });
+
+      map.on("mouseenter", circleLayerId, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", circleLayerId, () => {
+        map.getCanvas().style.cursor = "";
+      });
+
+      heatmapLayersAddedRef.current = true;
+    }
+
+    const visibility = showHeatmap ? "visible" : "none";
+    if (map.getLayer(circleLayerId)) {
+      map.setLayoutProperty(circleLayerId, "visibility", visibility);
+    }
+    if (map.getLayer(labelLayerId)) {
+      map.setLayoutProperty(labelLayerId, "visibility", visibility);
+    }
+    if (map.getLayer(hotspotLayerId)) {
+      map.setLayoutProperty(hotspotLayerId, "visibility", visibility);
+    }
+  }, [map, isMapLoaded, heatmapData, showHeatmap]);
+
   // 6. Update Bus Markers dynamically via WebSockets
   useEffect(() => {
     if (!map || !isMapLoaded || routes.length === 0) return;
@@ -229,17 +366,14 @@ export default function CorridorMonitor() {
       const route = routes.find((r) => r.id === bus.route_id);
 
       if (existingMarker) {
-        // Update position
         existingMarker.setLngLat([bus.current_lng, bus.current_lat]);
-        
-        // Update rotation
+
         const el = existingMarker.getElement();
         const arrow = el.querySelector(".bus-marker-arrow") as HTMLElement;
         if (arrow) {
           arrow.style.transform = `rotate(${bus.bearing ?? 0}deg)`;
         }
-        
-        // Update color and animations
+
         const dot = el.querySelector(".bus-marker-dot") as HTMLElement;
         if (dot) {
           if (bus.status === "delayed") {
@@ -250,7 +384,6 @@ export default function CorridorMonitor() {
           dot.style.backgroundColor = bus.status === "delayed" ? "#f59e0b" : "#10b981";
         }
 
-        // Update popup content dynamically
         const existingPopup = busPopupsRef.current[bus.id];
         if (existingPopup) {
           const busEta = getBusETA(bus.id);
@@ -269,7 +402,6 @@ export default function CorridorMonitor() {
           `);
         }
       } else {
-        // Create new DOM element for bus marker
         const el = document.createElement("div");
         el.className = "cursor-pointer group";
 
@@ -284,7 +416,6 @@ export default function CorridorMonitor() {
         dot.appendChild(arrow);
         el.appendChild(dot);
 
-        // Custom Popup — uses centralized ETA from API
         const busEta = getBusETA(bus.id);
         const statusColor = busEta?.status === "ON TIME" ? "text-emerald-500" : busEta?.status === "MINOR DELAY" ? "text-amber-500" : busEta?.status === "DELAYED" || busEta?.status === "SEVERELY DELAYED" ? "text-red-500" : "text-emerald-500";
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
@@ -307,11 +438,9 @@ export default function CorridorMonitor() {
 
         busPopupsRef.current[bus.id] = popup;
 
-        // Open popup on hover
         el.addEventListener("mouseenter", () => popup.addTo(map));
         el.addEventListener("mouseleave", () => popup.remove());
 
-        // Select route on click
         el.addEventListener("click", () => {
           setSelectedRouteId(bus.route_id);
         });
@@ -320,7 +449,6 @@ export default function CorridorMonitor() {
       }
     });
 
-    // Cleanup stale/orphaned markers
     const activeIds = new Set(buses.map((b) => b.id));
     Object.keys(busMarkersRef.current).forEach((idStr) => {
       const id = parseInt(idStr, 10);
@@ -342,88 +470,35 @@ export default function CorridorMonitor() {
       const existingMarker = incidentMarkersRef.current[incident.id];
       const isSelected = incident.id === selectedIncidentId;
 
-      // Choose color based on incident type
-      let color = "#ef4444"; // Landslide -> Red (default)
-      if (incident.type === "Flood Warning") color = "#3b82f6"; // Blue
-      else if (incident.type === "Road Closure") color = "#71717a"; // Gray
-      else if (incident.type === "Weather Advisory") color = "#f97316"; // Orange
+      let color = "#ef4444";
+      if (incident.type === "Flood Warning") color = "#3b82f6";
+      else if (incident.type === "Road Closure") color = "#71717a";
+      else if (incident.type === "Weather Advisory") color = "#f97316";
 
       if (existingMarker) {
-        // Update position if needed
         existingMarker.setLngLat([incident.longitude, incident.latitude]);
-        
-        // Update selection highlight ring
+
         const el = existingMarker.getElement();
         const outerPulse = el.querySelector(".incident-pulse") as HTMLElement;
         if (outerPulse) {
           outerPulse.style.display = isSelected ? "block" : "none";
         }
       } else {
-        // Create new DOM element for incident marker
         const el = document.createElement("div");
         el.className = "cursor-pointer group transition-all duration-300";
 
         el.innerHTML = `
           <div style="position:relative;display:flex;align-items:center;justify-content:center;width:48px;height:48px;">
-
-            <!-- Outermost slow pulse ring -->
-            <div style="
-              position:absolute;
-              width:48px; height:48px;
-              border-radius:50%;
-              background-color:${color};
-              opacity:0.15;
-              animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;
-            "></div>
-
-            <!-- Middle pulse ring (offset delay) -->
-            <div style="
-              position:absolute;
-              width:32px; height:32px;
-              border-radius:50%;
-              background-color:${color};
-              opacity:0.25;
-              animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;
-              animation-delay:0.5s;
-            "></div>
-
-            <!-- Selection spinner ring (only visible when selected) -->
-            <div class="incident-pulse" style="
-              position:absolute;
-              width:40px; height:40px;
-              border-radius:50%;
-              border:2px dashed white;
-              opacity:0.8;
-              animation:spin 3s linear infinite;
-              display:${isSelected ? "block" : "none"};
-            "></div>
-
-            <!-- Solid glow backdrop -->
-            <div style="
-              position:absolute;
-              width:20px; height:20px;
-              border-radius:50%;
-              background-color:${color};
-              opacity:0.5;
-              filter:blur(4px);
-            "></div>
-
-            <!-- Center dot -->
-            <div style="
-              position:relative;
-              width:16px; height:16px;
-              border-radius:50%;
-              background-color:${color};
-              border:2px solid rgba(0,0,0,0.6);
-              box-shadow:0 0 0 2px ${color}66, 0 4px 12px ${color}99;
-              display:flex; align-items:center; justify-content:center;
-            ">
+            <div style="position:absolute;width:48px;height:48px;border-radius:50%;background-color:${color};opacity:0.15;animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+            <div style="position:absolute;width:32px;height:32px;border-radius:50%;background-color:${color};opacity:0.25;animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;animation-delay:0.5s;"></div>
+            <div class="incident-pulse" style="position:absolute;width:40px;height:40px;border-radius:50%;border:2px dashed white;opacity:0.8;animation:spin 3s linear infinite;display:${isSelected ? "block" : "none"};"></div>
+            <div style="position:absolute;width:20px;height:20px;border-radius:50%;background-color:${color};opacity:0.5;filter:blur(4px);"></div>
+            <div style="position:relative;width:16px;height:16px;border-radius:50%;background-color:${color};border:2px solid rgba(0,0,0,0.6);box-shadow:0 0 0 2px ${color}66, 0 4px 12px ${color}99;display:flex;align-items:center;justify-content:center;">
               <div style="width:6px;height:6px;border-radius:50%;background:white;opacity:0.9;"></div>
             </div>
           </div>
         `;
 
-        // Custom Popup
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
           <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[200px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-zinc-200">${incident.title}</div>
@@ -441,14 +516,12 @@ export default function CorridorMonitor() {
           .setPopup(popup)
           .addTo(map);
 
-        // Open popup on hover
         el.addEventListener("mouseenter", () => popup.addTo(map));
         el.addEventListener("mouseleave", () => popup.remove());
 
-        // Select incident on click
         el.addEventListener("click", () => {
           setSelectedIncidentId(incident.id);
-          setShowEtaPanel(false); // Close ETA panel to prevent overlays
+          setShowEtaPanel(false);
           map.easeTo({ center: [incident.longitude, incident.latitude], zoom: 9.5, duration: 500 });
         });
 
@@ -456,7 +529,6 @@ export default function CorridorMonitor() {
       }
     });
 
-    // Cleanup stale/expired incident markers
     const activeIds = new Set(incidents.map((i) => i.id));
     Object.keys(incidentMarkersRef.current).forEach((id) => {
       if (!activeIds.has(id)) {
@@ -466,11 +538,9 @@ export default function CorridorMonitor() {
     });
   }, [map, isMapLoaded, incidents, selectedIncidentId]);
 
-  // Selected corridor details for focused view
   const focusedCorridor = corridors.find((c) => c.route_id === selectedRouteId);
   const focusedRoute = routes.find((r) => r.id === selectedRouteId);
 
-  // Helper for status badge style — uses centralized incident-aware status
   function getStatusStyle(status: string) {
     switch (status) {
       case "SEVERELY DELAYED":
@@ -490,7 +560,6 @@ export default function CorridorMonitor() {
     return busEtas[busId] ?? null;
   }
 
-  // Calculate total dynamic stats
   const activeBusesCount = buses.filter(b => b.status in ["active", "delayed"] || b.speed > 0).length || buses.length;
   const activeIncidentsCount = incidents.length;
   const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
@@ -508,6 +577,20 @@ export default function CorridorMonitor() {
           </p>
         </div>
         <div className="flex items-center gap-2 self-start md:self-auto">
+          {/* Heatmap Toggle */}
+          <button
+            onClick={() => setShowHeatmap(!showHeatmap)}
+            className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-[10px] font-bold transition-all ${
+              showHeatmap
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Layers className="h-3 w-3" />
+            <span>Heatmap</span>
+          </button>
+
+          {/* ETA Toggle */}
           <button
             onClick={() => setShowEtaPanel(!showEtaPanel)}
             className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-[10px] font-bold transition-all ${
@@ -519,6 +602,7 @@ export default function CorridorMonitor() {
             <Clock className="h-3 w-3" />
             <span>ETA</span>
           </button>
+
           <div className="bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-[10px] text-zinc-400">
             <div className={`h-1.5 w-1.5 rounded-full inline-block mr-1.5 ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`}></div>
             <span>{isConnected ? "Live GPS" : "Offline"}</span>
@@ -528,7 +612,7 @@ export default function CorridorMonitor() {
         </div>
       </div>
 
-      {/* Main Grid: Map & Corridor Panel */}
+      {/* Main Grid: Map & Side Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-[380px] overflow-hidden">
         {/* Map Container */}
         <div className="lg:col-span-2 flex flex-col bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden relative group">
@@ -545,12 +629,32 @@ export default function CorridorMonitor() {
             </div>
           )}
 
-          {selectedIncident && (
+          {selectedIncident && !showEtaPanel && (
             <div className="absolute top-3 right-3 z-20">
               <IncidentDetailCard
                 incident={selectedIncident}
                 onClose={() => setSelectedIncidentId(null)}
               />
+            </div>
+          )}
+
+          {/* Map Legend for Heatmap */}
+          {showHeatmap && (
+            <div className="absolute bottom-3 right-3 z-10 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-lg p-2.5 shadow-lg shadow-black/50">
+              <div className="text-[8px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">Demand Density</div>
+              <div className="flex items-center gap-1.5">
+                <div className="flex h-2 w-20 rounded-full overflow-hidden">
+                  <div className="flex-1" style={{ background: "#22c55e" }}></div>
+                  <div className="flex-1" style={{ background: "#84cc16" }}></div>
+                  <div className="flex-1" style={{ background: "#eab308" }}></div>
+                  <div className="flex-1" style={{ background: "#f97316" }}></div>
+                  <div className="flex-1" style={{ background: "#ef4444" }}></div>
+                </div>
+              </div>
+              <div className="flex justify-between text-[7px] text-zinc-500 mt-0.5">
+                <span>Low</span>
+                <span>Critical</span>
+              </div>
             </div>
           )}
 
@@ -571,7 +675,7 @@ export default function CorridorMonitor() {
           </div>
         </div>
 
-        {/* Right Corridor & Incident Panel */}
+        {/* Right Side Panel */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl flex flex-col overflow-hidden max-h-[500px] lg:max-h-none">
           {/* Tabs Header */}
           <div className="flex border-b border-zinc-800 bg-zinc-900/50 shrink-0">
@@ -602,6 +706,17 @@ export default function CorridorMonitor() {
                 {incidents.length}
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab("planning")}
+              className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-wider transition-all duration-200 border-b-2 flex items-center justify-center gap-1 ${
+                activeTab === "planning"
+                  ? "border-amber-500 text-amber-500 bg-zinc-950/20"
+                  : "border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40"
+              }`}
+            >
+              <Lightbulb className="h-3 w-3" />
+              <span>Planning</span>
+            </button>
           </div>
 
           <div className="p-2 space-y-2 overflow-y-auto flex-1 min-h-[300px]">
@@ -621,7 +736,6 @@ export default function CorridorMonitor() {
                           : "bg-zinc-900/40 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/60"
                       }`}
                     >
-                      {/* Header: name + status badge */}
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                           <div className="h-2 w-2 rounded-full" style={{ backgroundColor: corridor.color }}></div>
@@ -634,7 +748,6 @@ export default function CorridorMonitor() {
                         </span>
                       </div>
 
-                      {/* ETA row */}
                       <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
                         <span>CAP {corridor.capacity_utilization}%</span>
                         <span className="text-zinc-100 font-semibold">
@@ -642,7 +755,6 @@ export default function CorridorMonitor() {
                         </span>
                       </div>
 
-                      {/* Delay row */}
                       <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5">
                         <span>{corridor.active_bus_count} active units</span>
                         <span className={corridor.avg_delay_min > 0 ? "text-amber-500 font-semibold" : "text-emerald-500"}>
@@ -650,7 +762,6 @@ export default function CorridorMonitor() {
                         </span>
                       </div>
 
-                      {/* Capacity bar */}
                       <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-1.5">
                         <div
                           className="h-full rounded-full transition-all duration-500"
@@ -661,7 +772,6 @@ export default function CorridorMonitor() {
                         />
                       </div>
 
-                      {/* Affected incidents */}
                       {hasIncidents && (
                         <div className="mt-1.5 space-y-0.5">
                           {corridor.affected_incidents.map((inc, idx) => (
@@ -684,7 +794,7 @@ export default function CorridorMonitor() {
                   </div>
                 )}
               </>
-            ) : (
+            ) : activeTab === "incidents" ? (
               <IncidentFeedPanel
                 incidents={incidents}
                 selectedIncidentId={selectedIncidentId}
@@ -693,15 +803,17 @@ export default function CorridorMonitor() {
                   if (map) {
                     map.easeTo({ center: [incident.longitude, incident.latitude], zoom: 9.5, duration: 600 });
                   }
-                  setShowEtaPanel(false); // Close ETA panel on selection
+                  setShowEtaPanel(false);
                 }}
               />
+            ) : (
+              <PlanningInsightsPanel />
             )}
           </div>
         </div>
       </div>
 
-      {/* Focus Panel — incident-aware ETA and status */}
+      {/* Focus Panel */}
       {focusedCorridor && (
         <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
           <div className="flex items-center gap-3">
@@ -729,43 +841,31 @@ export default function CorridorMonitor() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 max-w-3xl justify-items-stretch md:justify-items-center">
             <div className="text-left md:text-center border-l md:border-l-0 border-zinc-800 pl-3 md:pl-0">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                ETA
-              </span>
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">ETA</span>
               <p className="text-sm font-black text-zinc-100 mt-0.5">
                 {focusedCorridor.eta_min != null ? `${Math.round(focusedCorridor.eta_min)} min` : "—"}
               </p>
             </div>
-
             <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                Delay
-              </span>
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Delay</span>
               <p className={`text-sm font-black mt-0.5 ${focusedCorridor.avg_delay_min > 0 ? "text-amber-500" : "text-zinc-100"}`}>
                 {focusedCorridor.avg_delay_min > 0 ? `+${Math.round(focusedCorridor.avg_delay_min)} min` : "0 min"}
               </p>
             </div>
-
             <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                Active Units
-              </span>
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Active Units</span>
               <p className="text-sm font-black text-zinc-100 mt-0.5">
                 {buses.filter(b => b.route_id === selectedRouteId).length}
               </p>
             </div>
-
             <div className="text-left md:text-center border-l border-zinc-800 pl-3">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
-                Capacity
-              </span>
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Capacity</span>
               <p className="text-sm font-black text-zinc-100 mt-0.5">
                 {focusedCorridor.capacity_utilization}%
               </p>
             </div>
           </div>
 
-          {/* Affected incidents row in focus panel */}
           {focusedCorridor.affected_incidents.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3 mt-2 md:border-t-0 md:pt-0 md:mt-0">
               {focusedCorridor.affected_incidents.map((inc, idx) => (
