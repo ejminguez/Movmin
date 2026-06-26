@@ -10,7 +10,7 @@ from app.core.database import SessionLocal
 from app.models.routes import Route
 from app.models.buses import Bus
 from app.models.incidents import Incident
-from app.simulation.coordinates import get_position_along_route
+from app.simulation.coordinates import get_position_along_route, haversine_distance
 from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
@@ -192,10 +192,19 @@ class SimulationEngine:
                     if route_incidents:
                         incident_types = {inc.incident_type for inc in route_incidents}
                         
-                        if "Road Closure" in incident_types:
-                            status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
-                        elif "Landslide" in incident_types:
-                            status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
+                        # Road Closure and Landslide: stop only if bus is close to the incident
+                        stopping_incidents = {"Road Closure", "Landslide"}
+                        if incident_types & stopping_incidents:
+                            bus_pos, _ = get_position_along_route(waypoints, state["distance_km"])
+                            near_stop = False
+                            stop_threshold_km = 3.0
+                            for inc in route_incidents:
+                                if inc.incident_type in stopping_incidents and inc.lat is not None and inc.lng is not None:
+                                    dist = haversine_distance(bus_pos, (inc.lat, inc.lng))
+                                    if dist <= stop_threshold_km:
+                                        near_stop = True
+                                        break
+                            status = "STOPPED" if near_stop else "DELAYED"
                         elif "Flood Warning" in incident_types or "Weather Advisory" in incident_types:
                             status = "DELAYED"
                         else:
