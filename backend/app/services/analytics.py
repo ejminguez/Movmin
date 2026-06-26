@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 def take_snapshot(db: Session):
     """Compute per-route metrics and insert them into the analytics table."""
-    try:
-        routes = db.query(Route).all()
-        if not routes:
-            logger.warning("No routes found for analytics snapshot.")
-            return
+    routes = db.query(Route).all()
+    if not routes:
+        logger.warning("No routes found for analytics snapshot.")
+        return
 
-        for route in routes:
-            # Query active buses on route
+    saved = 0
+    for route in routes:
+        try:
             active_buses = db.query(Bus).filter(
                 Bus.route_id == route.id,
                 Bus.status.in_(["active", "normal", "delayed", "stopped", "rerouting", "severely_delayed"])
@@ -30,27 +30,22 @@ def take_snapshot(db: Session):
 
             active_bus_count = len(active_buses)
 
-            # Calculate average speed and travel time
             if active_bus_count > 0:
                 avg_speed = sum(b.speed for b in active_buses) / active_bus_count
                 avg_travel_time_min = (route.distance_km / max(avg_speed, 1.0)) * 60 if route.distance_km else 0.0
-                
                 total_occupancy = sum(b.occupancy for b in active_buses)
                 total_capacity = sum(b.capacity for b in active_buses)
                 utilization = (total_occupancy / total_capacity * 100) if total_capacity > 0 else 0.0
             else:
-                # Default values if no buses are running
                 avg_travel_time_min = (route.distance_km / 45.0) * 60 if route.distance_km else 0.0
                 utilization = 0.0
 
-            # Calculate delay from active incidents affecting this route
             active_incidents = db.query(Incident).filter(
                 Incident.affected_route_id == route.id,
                 Incident.status == "active"
             ).all()
             avg_delay_min = sum(inc.estimated_delay_min for inc in active_incidents)
 
-            # Calculate on-time performance based on average delay
             if avg_delay_min == 0:
                 otp = 100.0
             elif avg_delay_min <= 5:
@@ -60,7 +55,6 @@ def take_snapshot(db: Session):
             else:
                 otp = 40.0
 
-            # Insert snapshot record
             snapshot = Analytic(
                 route_id=route.id,
                 avg_travel_time_min=round(avg_travel_time_min, 1) if avg_travel_time_min is not None else None,
@@ -70,12 +64,12 @@ def take_snapshot(db: Session):
                 active_bus_count=active_bus_count
             )
             db.add(snapshot)
+            saved += 1
+        except Exception as e:
+            logger.error(f"Failed to save analytics snapshot for route {route.id} ({route.name}): {e}", exc_info=True)
 
-        db.commit()
-        logger.info(f"Analytics snapshot saved successfully for {len(routes)} routes.")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed to save analytics snapshot: {e}", exc_info=True)
+    db.commit()
+    logger.info(f"Analytics snapshot saved successfully for {saved}/{len(routes)} routes.")
 
 
 async def start_snapshot_scheduler():
