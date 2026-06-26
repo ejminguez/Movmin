@@ -7,6 +7,7 @@ class ScenarioSimulateParameters(BaseModel):
     demand_increase_pct: Optional[float] = None
     weather_condition: Optional[str] = None
     route_ids: Optional[List[int]] = None
+    preset_id: Optional[str] = None
 
 class ScenarioSimulateRequest(BaseModel):
     type: str = Field(..., description="One of: route_closure, demand_surge, severe_weather, combined")
