@@ -133,6 +133,52 @@ export interface RouteSnapshotResponse {
   snapshots: AnalyticSnapshot[];
 }
 
+export interface ScenarioPreset {
+  id: string;
+  name: string;
+  description: string;
+  type: "route_closure" | "demand_surge" | "severe_weather" | "combined";
+  parameters: Record<string, any>;
+}
+
+export interface ScenarioImpact {
+  travel_time_delta_min: number;
+  travel_time_delta_pct: number;
+  congestion_delta_pct: number;
+  occupancy_delta_pct: number;
+  affected_buses: number;
+  affected_passengers: number;
+  alternative_route?: string;
+}
+
+export interface ScenarioInsight {
+  text: string;
+  type: "recommendation" | "alert" | "info";
+  confidence: "high" | "medium" | "low";
+  suggested_actions: string[];
+}
+
+export interface ScenarioResult {
+  scenario_id: string;
+  type: string;
+  timestamp: string;
+  impact: ScenarioImpact;
+  before_snapshot: Record<string, any>;
+  after_snapshot: Record<string, any>;
+  insight: ScenarioInsight;
+}
+
+export interface ScenarioSimulateRequest {
+  type: "route_closure" | "demand_surge" | "severe_weather" | "combined";
+  route_id?: number;
+  parameters: {
+    duration_minutes?: number;
+    demand_increase_pct?: number;
+    weather_condition?: string;
+    route_ids?: number[];
+  };
+}
+
 export interface HeatmapFeatureProperties {
   municipality: string;
   density_score: number;

@@ -6,8 +6,9 @@ from app.models.routes import Route
 from app.models.terminals import Terminal
 from app.models.buses import Bus
 from app.models.incidents import Incident
-from app.services.weather import get_weather_for_route, CONDITION_PRIORITY
+from app.services.weather import get_weather_for_route, CONDITION_PRIORITY, WEATHER_CONDITIONS
 from app.simulation.coordinates import haversine_distance
+from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,27 @@ def _leg_time(
     weather_delay = weather["delay_min"]
     incident_delay = _get_incident_delay(route.id, db)
 
+    # Apply active scenario overrides
+    overrides = scenario_manager.get_overrides(route.id)
+    if overrides:
+        if overrides.get("status") == "CLOSED":
+            avg_speed = 15.0  # slow detour speed
+            base_time_min = (distance_km / avg_speed) * 60
+            traffic_delay = 0.0
+            weather_delay = 0.0
+            incident_delay = overrides.get("delay_min_override", 15.0)
+        else:
+            if "speed_multiplier" in overrides:
+                avg_speed = max(5.0, avg_speed * overrides["speed_multiplier"])
+                base_time_min = (distance_km / avg_speed) * 60
+            if "delay_min_override" in overrides:
+                incident_delay = overrides["delay_min_override"]
+            if "weather" in overrides:
+                cond = overrides["weather"]
+                weather_meta = WEATHER_CONDITIONS.get(cond, WEATHER_CONDITIONS["clear"])
+                weather_delay = weather_meta["delay_min"]
+                weather = {"label": weather_meta["label"], "_key": cond}
+
     return {
         "route_id": route.id,
         "route_name": route.name,
@@ -152,6 +174,14 @@ def get_route_eta(route_id: int, db: Session) -> Optional[dict]:
 
     total_delay = result["traffic_delay_min"] + result["weather_delay_min"] + result["incident_delay_min"]
     result["status"] = _compute_status(total_delay, incidents)
+
+    # Override status if active scenario
+    overrides = scenario_manager.get_overrides(route_id)
+    if overrides:
+        if "status_override" in overrides:
+            result["status"] = overrides["status_override"]
+        elif overrides.get("status") == "CLOSED":
+            result["status"] = "REROUTING"
 
     return result
 
@@ -212,6 +242,21 @@ def get_bus_eta(bus_id: int, db: Session) -> Optional[dict]:
     # Use the centralized leg time calculation
     leg = _leg_time(route, bus.current_lat, bus.current_lng, nearest_term.lat, nearest_term.lng, db)
 
+    status = _compute_status(
+        leg["traffic_delay_min"] + leg["weather_delay_min"] + leg["incident_delay_min"],
+        db.query(Incident).filter(
+            Incident.affected_route_id == route.id,
+            Incident.status == "active",
+        ).all(),
+    )
+
+    overrides = scenario_manager.get_overrides(route.id)
+    if overrides:
+        if "status_override" in overrides:
+            status = overrides["status_override"]
+        elif overrides.get("status") == "CLOSED":
+            status = "REROUTING"
+
     return {
         "bus_id": bus.id,
         "bus_name": bus.name,
@@ -223,13 +268,7 @@ def get_bus_eta(bus_id: int, db: Session) -> Optional[dict]:
         "weather_delay_min": leg["weather_delay_min"],
         "incident_delay_min": leg["incident_delay_min"],
         "total_time_min": leg["total_time_min"],
-        "status": _compute_status(
-            leg["traffic_delay_min"] + leg["weather_delay_min"] + leg["incident_delay_min"],
-            db.query(Incident).filter(
-                Incident.affected_route_id == route.id,
-                Incident.status == "active",
-            ).all(),
-        ),
+        "status": status,
     }
 
 
