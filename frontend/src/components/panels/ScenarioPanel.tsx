@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Route, ScenarioResult, ScenarioSimulateRequest } from "@/types";
 import { 
-  Play, RotateCcw, AlertTriangle, ShieldAlert,
+  Play, AlertTriangle, ShieldAlert,
   TrendingUp, Clock, Users, ArrowUpRight, ArrowRight
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -9,8 +9,6 @@ import { api } from "@/lib/api";
 interface ScenarioPanelProps {
   routes: Route[];
   activeScenarioId: string | null;
-  onApply: (result: ScenarioResult, durationSeconds: number) => Promise<void>;
-  onReset: () => Promise<void>;
   isApplying: boolean;
   onSelectPreset: (presetId: string | null) => void;
   presetResult: ScenarioResult | null;
@@ -19,8 +17,6 @@ interface ScenarioPanelProps {
 export default function ScenarioPanel({
   routes,
   activeScenarioId,
-  onApply,
-  onReset,
   isApplying,
   onSelectPreset,
   presetResult
@@ -34,7 +30,6 @@ export default function ScenarioPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ScenarioResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [durationSecondsStr, setDurationSecondsStr] = useState<string>("120");
 
   const activeResult = presetResult || result;
 
@@ -71,18 +66,6 @@ export default function ScenarioPanel({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleApplyClick = async () => {
-    if (!activeResult) return;
-    const parsedSeconds = durationSecondsStr === "" ? 120 : parseInt(durationSecondsStr, 10);
-    await onApply(activeResult, parsedSeconds);
-  };
-
-  const handleResetClick = async () => {
-    await onReset();
-    setResult(null);
-    onSelectPreset(null);
   };
 
   return (
@@ -302,45 +285,7 @@ export default function ScenarioPanel({
               </div>
             </div>
 
-            {/* Apply and Reset Live Controls */}
-            <div className="space-y-3.5 border-t border-zinc-900/80 pt-3.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Apply Duration (sec)</label>
-                  <input
-                    type="text"
-                    value={durationSecondsStr}
-                    onChange={(e) => setDurationSecondsStr(e.target.value.replace(/\D/g, ""))}
-                    placeholder="120"
-                    disabled={isApplying}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-xs text-zinc-200 font-mono focus:outline-none"
-                  />
-                </div>
-                <div className="text-[10px] text-zinc-500 italic mt-4 select-none">
-                  Demo overlay timer
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  onClick={handleApplyClick}
-                  disabled={isApplying}
-                  className={`py-2 text-xs font-bold rounded border text-zinc-950 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 border-amber-500 cursor-pointer flex items-center justify-center gap-1.5 transition-all ${
-                    activeScenarioId ? "ring-2 ring-amber-500/50 border-amber-400 animate-pulse" : ""
-                  }`}
-                >
-                  <Play className="h-3 w-3 fill-zinc-950" />
-                  {activeScenarioId ? "Re-apply" : "Apply to Map"}
-                </button>
-                <button
-                  onClick={handleResetClick}
-                  className="py-2 text-xs font-bold rounded border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/80 text-zinc-400 cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Reset Map
-                </button>
-              </div>
-            </div>
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-500 font-light mt-10">

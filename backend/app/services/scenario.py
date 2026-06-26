@@ -166,6 +166,7 @@ class ScenarioEngine:
             demand_pct = params.get("demand_increase_pct", 50.0)
             
             impact["travel_time_delta_min"] = round((demand_pct / 10.0) * 2.0, 1)
+            impact["travel_time_delta_pct"] = demand_pct
             impact["congestion_delta_pct"] = round(demand_pct * 0.4, 1)
             impact["occupancy_delta_pct"] = demand_pct
             

@@ -308,27 +308,6 @@ export default function ScenarioPage() {
     }
   };
 
-  const handleApplyScenario = async (result: ScenarioResult, durationSeconds: number) => {
-    try {
-      await api.applyScenario(result.scenario_id, durationSeconds);
-      setIsApplying(true);
-    } catch (err) {
-      console.error("Failed to apply scenario overrides:", err);
-    }
-  };
-
-  const handleResetScenario = async () => {
-    try {
-      await api.resetScenario();
-      setPresetResult(null);
-      setSelectedPresetId(null);
-      setIsApplying(false);
-      setCountdown(null);
-    } catch (err) {
-      console.error("Failed to reset scenario overrides:", err);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full gap-4 text-zinc-100">
       {/* Header Info */}
@@ -392,10 +371,8 @@ export default function ScenarioPage() {
             <ScenarioPanel
               routes={routes}
               activeScenarioId={activeScenario?.scenario_id || null}
-              onApply={handleApplyScenario}
-              onReset={handleResetScenario}
               isApplying={isApplying}
-              onSelectPreset={setSelectedPresetId}
+              onSelectPreset={(id) => { setSelectedPresetId(id); setPresetResult(null); }}
               presetResult={presetResult}
             />
           </div>
