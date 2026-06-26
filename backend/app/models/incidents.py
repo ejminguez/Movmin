@@ -16,6 +16,5 @@ class Incident(Base):
     affected_route_id = Column(Integer, ForeignKey("routes.id"), nullable=True)
     estimated_delay_min = Column(Integer, default=0)
     status = Column(String(20), default="active")
-    source = Column(String(20), default="simulation")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)

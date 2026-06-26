@@ -339,7 +339,6 @@ export default function ScenarioPage() {
       affected_route_id: incRouteId,
       estimated_delay_min: incDelay,
       duration_minutes: parsedDuration && !isNaN(parsedDuration) ? parsedDuration : null,
-      source: "manual",
     };
     try {
       await api.createIncident(body);
@@ -537,7 +536,7 @@ export default function ScenarioPage() {
                 incident.type === "Road Closure" ? "#71717a" :
                 incident.type === "Weather Advisory" ? "#f97316" : "#ef4444";
               const routeName = incident.affected_routes?.[0] || "Unknown";
-              const isManual = incident.source === "manual";
+              const isManual = incident.title.startsWith("[Manual]");
               return (
                 <div
                   key={incident.id}

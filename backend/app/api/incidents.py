@@ -27,7 +27,6 @@ def map_incident_to_schema(inc: Incident, db: Session) -> dict:
         "affected_routes": affected_routes,
         "estimated_delay_minutes": inc.estimated_delay_min or 0,
         "status": inc.status or "active",
-        "source": inc.source or "simulation",
         "created_at": inc.created_at,
         "expires_at": inc.expires_at,
     }
@@ -59,7 +58,6 @@ def create_incident(req: IncidentCreateRequest, db: Session = Depends(get_db)):
         affected_route_id=req.affected_route_id,
         estimated_delay_min=req.estimated_delay_min,
         status="active",
-        source=req.source,
         expires_at=expires_at,
     )
     db.add(incident)

@@ -320,7 +320,6 @@ class SimulationEngine:
                     "affected_routes": affected_routes,
                     "estimated_delay_minutes": inc.estimated_delay_min or 0,
                     "status": inc.status or "active",
-                    "source": inc.source or "simulation",
                     "created_at": inc.created_at.isoformat() if inc.created_at else None,
                     "expires_at": inc.expires_at.isoformat() if inc.expires_at else None,
                 })
