@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api";
 import type {
   PlanningInsights,
@@ -86,7 +87,7 @@ export default function PlanningInsightsPanel() {
   }
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col max-h-[500px] lg:max-h-[70vh]">
+    <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col h-full">
       <div className="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
         <div className="flex items-center gap-2">
           <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -159,8 +160,25 @@ export default function PlanningInsightsPanel() {
                 AI Recommendations
               </span>
             </div>
-            <div className="text-[11px] text-zinc-300 leading-relaxed whitespace-pre-line">
-              {insights.summary}
+            <div className="text-[11px] text-zinc-300 leading-relaxed">
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => <h1 className="text-sm font-bold text-zinc-100 mt-2 mb-1">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-xs font-bold text-zinc-100 mt-2 mb-1">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-[11px] font-bold text-zinc-100 mt-1.5 mb-0.5">{children}</h3>,
+                  h4: ({ children }) => <h4 className="text-[11px] font-bold text-zinc-100 mt-1.5 mb-0.5">{children}</h4>,
+                  h5: ({ children }) => <h5 className="text-[11px] font-bold text-zinc-100 mt-1.5 mb-0.5">{children}</h5>,
+                  h6: ({ children }) => <h6 className="text-[11px] font-bold text-zinc-100 mt-1.5 mb-0.5">{children}</h6>,
+                  p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc list-inside mb-1.5 space-y-0.5">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal list-inside mb-1.5 space-y-0.5">{children}</ol>,
+                  li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+                  strong: ({ children }) => <strong className="font-bold text-zinc-100">{children}</strong>,
+                  hr: () => <hr className="border-zinc-700 my-2" />,
+                }}
+              >
+                {insights.summary}
+              </ReactMarkdown>
             </div>
           </div>
         )}
