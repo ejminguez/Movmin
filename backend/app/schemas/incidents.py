@@ -6,6 +6,7 @@ class IncidentBase(BaseModel):
     id: str
     type: str
     severity: str
+    title: str = ""
     affected_routes: List[str]
     estimated_delay_minutes: int
 

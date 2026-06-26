@@ -536,7 +536,7 @@ export default function ScenarioPage() {
                 incident.type === "Road Closure" ? "#71717a" :
                 incident.type === "Weather Advisory" ? "#f97316" : "#ef4444";
               const routeName = incident.affected_routes?.[0] || "Unknown";
-              const isManual = incident.title.startsWith("[Manual]");
+              const isManual = (incident.title || "").startsWith("[Manual]");
               return (
                 <div
                   key={incident.id}
