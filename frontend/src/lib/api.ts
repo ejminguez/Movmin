@@ -17,6 +17,8 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  delete: <T>(path: string) =>
+    request<T>(path, { method: "DELETE" }),
   health: () => request<{ status: string }>("/health"),
 
   simulateScenario: (body: ScenarioSimulateRequest) =>
@@ -42,4 +44,10 @@ export const api = {
 
   getDemandInsights: (routeId: number) =>
     request<DemandInsight>(`/api/demand/insights/${routeId}`),
+
+  createIncident: (body: any) =>
+    request<any>("/api/incidents", { method: "POST", body: JSON.stringify(body) }),
+
+  deleteIncident: (id: string) =>
+    request<any>(`/api/incidents/${id}`, { method: "DELETE" }),
 };

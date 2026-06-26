@@ -205,6 +205,18 @@ export interface DemandInsight {
   source: string;
 }
 
+export interface IncidentCreateRequest {
+  incident_type: string;
+  severity: string;
+  title?: string;
+  description?: string;
+  lat: number;
+  lng: number;
+  affected_route_id: number;
+  estimated_delay_min: number;
+  duration_minutes?: number | null;
+}
+
 export interface ScenarioSimulateRequest {
   type: "route_closure" | "demand_surge" | "severe_weather" | "combined";
   route_id?: number;

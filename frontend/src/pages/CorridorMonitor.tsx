@@ -371,23 +371,19 @@ export default function CorridorMonitor() {
         const el = existingMarker.getElement();
         const arrow = el.querySelector(".bus-marker-arrow") as HTMLElement;
         if (arrow) {
-          arrow.style.transform = `rotate(${bus.bearing ?? 0}deg)`;
+          arrow.style.transform = `rotate(${(bus.bearing ?? 0) + 180}deg)`;
         }
 
         const dot = el.querySelector(".bus-marker-dot") as HTMLElement;
         if (dot) {
-          if (bus.status === "delayed") {
-            dot.className = "bus-marker-dot relative flex items-center justify-center h-4 w-4 rounded-full bg-amber-500 border border-black shadow shadow-black transition-all duration-300";
-          } else {
-            dot.className = "bus-marker-dot relative flex items-center justify-center h-4 w-4 rounded-full bg-emerald-500 border border-black shadow shadow-black transition-all duration-300";
-          }
-          dot.style.backgroundColor = bus.status === "delayed" ? "#f59e0b" : "#10b981";
+          const color = getBusColor(bus.status);
+          dot.className = "bus-marker-dot relative flex items-center justify-center h-4 w-4 rounded-full border border-black shadow shadow-black transition-all duration-300";
+          dot.style.backgroundColor = color;
         }
 
         const existingPopup = busPopupsRef.current[bus.id];
         if (existingPopup) {
-          const busEta = getBusETA(bus.id);
-          const statusColor = busEta?.status === "ON TIME" ? "text-emerald-500" : busEta?.status === "MINOR DELAY" ? "text-amber-500" : busEta?.status === "DELAYED" || busEta?.status === "SEVERELY DELAYED" ? "text-red-500" : "text-emerald-500";
+          const popupColor = getBusColor(bus.status);
           existingPopup.setHTML(`
             <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
               <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
@@ -395,8 +391,7 @@ export default function CorridorMonitor() {
                 <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
                 <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
                 <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
-                <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px] ${statusColor}">${busEta?.status ?? bus.status}</span></div>
-                ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal_name.replace(" Terminal", "")}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.total_time_min)} min</span></div>` : ""}
+                <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
               </div>
             </div>
           `);
@@ -405,19 +400,19 @@ export default function CorridorMonitor() {
         const el = document.createElement("div");
         el.className = "cursor-pointer group";
 
+        const color = getBusColor(bus.status);
         const dot = document.createElement("div");
         dot.className = `bus-marker-dot relative flex items-center justify-center h-4.5 w-4.5 rounded-full border border-black shadow-lg transition-all duration-300`;
-        dot.style.backgroundColor = bus.status === "delayed" ? "#f59e0b" : "#10b981";
+        dot.style.backgroundColor = color;
 
         const arrow = document.createElement("div");
         arrow.className = "bus-marker-arrow w-0 h-0 border-l-[3.5px] border-l-transparent border-r-[3.5px] border-r-transparent border-b-[7px] border-b-black -mt-[1px] transition-transform duration-300";
-        arrow.style.transform = `rotate(${bus.bearing ?? 0}deg)`;
+        arrow.style.transform = `rotate(${(bus.bearing ?? 0) + 180}deg)`;
 
         dot.appendChild(arrow);
         el.appendChild(dot);
 
-        const busEta = getBusETA(bus.id);
-        const statusColor = busEta?.status === "ON TIME" ? "text-emerald-500" : busEta?.status === "MINOR DELAY" ? "text-amber-500" : busEta?.status === "DELAYED" || busEta?.status === "SEVERELY DELAYED" ? "text-red-500" : "text-emerald-500";
+        const popupColor = getBusColor(bus.status);
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
           <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
@@ -425,8 +420,7 @@ export default function CorridorMonitor() {
               <div><span class="text-zinc-500">Route:</span> ${route?.name ?? "Unknown"}</div>
               <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
               <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
-              <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px] ${statusColor}">${busEta?.status ?? bus.status}</span></div>
-              ${busEta ? `<div class="border-t border-zinc-800 pt-1 mt-1.5"><span class="text-zinc-500">ETA to ${busEta.terminal_name.replace(" Terminal", "")}:</span> <span class="font-bold text-amber-500">${Math.round(busEta.total_time_min)} min</span></div>` : ""}
+              <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
             </div>
           </div>
         `);
@@ -556,11 +550,22 @@ export default function CorridorMonitor() {
     }
   }
 
+  function getBusColor(status: string): string {
+    const s = status.toLowerCase().replace(/[\s_]/g, "_");
+    if (s === "stopped") return "#71717a";
+    if (s === "severely_delayed" || s === "closed") return "#ef4444";
+    if (s === "delayed" || s === "minor_delay" || s === "rerouting") return "#f59e0b";
+    return "#10b981";
+  }
+
   function getBusETA(busId: number): BusETAResponse | null {
     return busEtas[busId] ?? null;
   }
 
-  const activeBusesCount = buses.filter(b => b.status in ["active", "delayed"] || b.speed > 0).length || buses.length;
+  const activeBusesCount = buses.filter(b => {
+    const s = b.status.toLowerCase().replace(/[\s_]/g, "_");
+    return s !== "stopped";
+  }).length || buses.length;
   const activeIncidentsCount = incidents.length;
   const selectedIncident = incidents.find((i) => i.id === selectedIncidentId) || null;
 
