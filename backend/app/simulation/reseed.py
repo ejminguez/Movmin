@@ -4,6 +4,9 @@ from app.models.routes import Route
 from app.models.terminals import Terminal
 from app.models.buses import Bus
 from app.models.incidents import Incident
+from app.models.analytics import Analytic
+from app.models.forecasts import Forecast
+from app.models.scenario_log import ScenarioLog
 from app.simulation.seed import seed_database
 from app.simulation.engine import simulation_engine
 
@@ -15,6 +18,9 @@ def reseed():
     try:
         logger.info("Cleaning up existing simulation data...")
         # Deleting in reverse order of foreign key dependencies to avoid constraint violations
+        db.query(ScenarioLog).delete()
+        db.query(Forecast).delete()
+        db.query(Analytic).delete()
         db.query(Incident).delete()
         db.query(Bus).delete()
         db.query(Terminal).delete()
