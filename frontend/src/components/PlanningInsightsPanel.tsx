@@ -86,7 +86,7 @@ export default function PlanningInsightsPanel() {
   }
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col max-h-[500px] lg:max-h-none">
+    <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col max-h-[500px] lg:max-h-[70vh]">
       <div className="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
         <div className="flex items-center gap-2">
           <Lightbulb className="h-4 w-4 text-amber-500" />

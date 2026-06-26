@@ -17,7 +17,7 @@ from app.services.heatmap import (
 
 logger = logging.getLogger(__name__)
 
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "apac.amazon.nova-lite-v1:0")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 
 
@@ -69,7 +69,6 @@ def _invoke_bedrock(prompt: str) -> Optional[str]:
         bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
         native_request = {
-            "schemaVersion": "messages",
             "messages": [
                 {
                     "role": "user",

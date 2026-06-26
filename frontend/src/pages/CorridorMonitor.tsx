@@ -33,7 +33,6 @@ export default function CorridorMonitor() {
   const [activeTab, setActiveTab] = useState<"corridors" | "incidents" | "planning">("corridors");
   const [lastSynced, setLastSynced] = useState<Date>(new Date());
   const [showEtaPanel, setShowEtaPanel] = useState(false);
-  const [showPlanningPanel, setShowPlanningPanel] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatmapData, setHeatmapData] = useState<HeatmapGeoJSON | null>(null);
 
@@ -591,19 +590,6 @@ export default function CorridorMonitor() {
             <span>Heatmap</span>
           </button>
 
-          {/* Planning Insights Toggle */}
-          <button
-            onClick={() => setShowPlanningPanel(!showPlanningPanel)}
-            className={`flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-[10px] font-bold transition-all ${
-              showPlanningPanel
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <Lightbulb className="h-3 w-3" />
-            <span>Insights</span>
-          </button>
-
           {/* ETA Toggle */}
           <button
             onClick={() => setShowEtaPanel(!showEtaPanel)}
@@ -637,19 +623,13 @@ export default function CorridorMonitor() {
 
           <div ref={mapContainerRef} className="w-full flex-1 min-h-[300px] h-full" />
 
-          {showPlanningPanel && (
-            <div className="absolute top-3 right-3 z-20 w-80">
-              <PlanningInsightsPanel />
-            </div>
-          )}
-
-          {showEtaPanel && !showPlanningPanel && (
+          {showEtaPanel && (
             <div className="absolute top-3 right-3 z-20">
               <ETAPanel terminals={terminals} onClose={() => setShowEtaPanel(false)} />
             </div>
           )}
 
-          {selectedIncident && !showEtaPanel && !showPlanningPanel && (
+          {selectedIncident && !showEtaPanel && (
             <div className="absolute top-3 right-3 z-20">
               <IncidentDetailCard
                 incident={selectedIncident}
