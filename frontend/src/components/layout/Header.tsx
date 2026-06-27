@@ -22,7 +22,7 @@ export function Header() {
         className="mx-6 mt-4 mb-2 flex h-14 cursor-pointer items-center justify-between rounded-2xl bg-[#13382c] px-6 shadow-lg shadow-black/25 border border-emerald-950/20 transition-all duration-300 hover:bg-[#163e31]"
       >
         {/* Logo */}
-        <div className="flex items-center select-none">
+        <div className="flex items-center select-none pb-[10px]">
           <img src={movemin_logo} alt="Movemin Logo" className="w-[50%]"/>
         </div>
 
