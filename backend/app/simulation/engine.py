@@ -224,7 +224,7 @@ class SimulationEngine:
                         if incident_types & stopping_incidents:
                             bus_pos, _ = get_position_along_route(waypoints, state["distance_km"])
                             near_stop = False
-                            stop_threshold_km = 3.0
+                            stop_threshold_km = 1.0
                             for inc in route_incidents:
                                 if inc.incident_type in stopping_incidents and inc.lat is not None and inc.lng is not None:
                                     dist = haversine_distance(bus_pos, (inc.lat, inc.lng))
