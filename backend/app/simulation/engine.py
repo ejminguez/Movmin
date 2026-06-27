@@ -10,7 +10,7 @@ from app.core.database import SessionLocal
 from app.models.routes import Route
 from app.models.buses import Bus
 from app.models.incidents import Incident
-from app.simulation.coordinates import get_position_along_route, haversine_distance, compute_route_overlaps
+from app.simulation.coordinates import get_position_along_route, haversine_distance, compute_route_overlaps, project_incident_on_route
 from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
@@ -198,6 +198,21 @@ class SimulationEngine:
                         if rid != bus.route_id and rid in overlap_map:
                             if state["distance_km"] <= overlap_map[rid]:
                                 route_incidents.append(inc)
+
+                    # Filter out Road Closure / Landslide incidents the bus has already passed
+                    stopping_incidents = {"Road Closure", "Landslide"}
+                    filtered = []
+                    for inc in route_incidents:
+                        if inc.incident_type in stopping_incidents and inc.lat is not None and inc.lng is not None:
+                            inc_dist = project_incident_on_route(waypoints, inc.lat, inc.lng)
+                            has_passed = (
+                                (state["direction"] and state["distance_km"] > inc_dist)
+                                or (not state["direction"] and state["distance_km"] < inc_dist)
+                            )
+                            if has_passed:
+                                continue
+                        filtered.append(inc)
+                    route_incidents = filtered
                     
                     status = "NORMAL"
                     speed_multiplier = 1.0
@@ -206,7 +221,6 @@ class SimulationEngine:
                         incident_types = {inc.incident_type for inc in route_incidents}
                         
                         # Road Closure and Landslide: stop only if bus is close to the incident
-                        stopping_incidents = {"Road Closure", "Landslide"}
                         if incident_types & stopping_incidents:
                             bus_pos, _ = get_position_along_route(waypoints, state["distance_km"])
                             near_stop = False

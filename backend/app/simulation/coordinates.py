@@ -179,3 +179,32 @@ def compute_route_overlaps(
                 overlaps[rid_a][rid_b] = sum(segs_a)
 
     return overlaps
+
+
+def project_incident_on_route(
+    waypoints: List[List[float]],
+    incident_lat: float,
+    incident_lng: float,
+) -> float:
+    """Find the distance along the route (in km) to the waypoint nearest the incident."""
+    if not waypoints:
+        return 0.0
+
+    min_dist = float("inf")
+    nearest_idx = 0
+    for i, wp in enumerate(waypoints):
+        d = haversine_distance(
+            (incident_lat, incident_lng),
+            (float(wp[0]), float(wp[1])),
+        )
+        if d < min_dist:
+            min_dist = d
+            nearest_idx = i
+
+    acc = 0.0
+    for i in range(nearest_idx):
+        acc += haversine_distance(
+            (float(waypoints[i][0]), float(waypoints[i][1])),
+            (float(waypoints[i + 1][0]), float(waypoints[i + 1][1])),
+        )
+    return acc
