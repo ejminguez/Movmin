@@ -20,6 +20,7 @@ export interface Bus {
   status: string;
   bearing?: number;
   direction?: boolean;
+  eta_min?: number | null;
   last_updated: string;
 }
 

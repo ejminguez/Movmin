@@ -385,12 +385,14 @@ export default function CorridorMonitor() {
         if (existingPopup) {
           const popupColor = getBusColor(bus.status);
           const routeLabel = displayRouteName(route?.name, bus.direction);
+          const etaText = bus.eta_min != null ? `${bus.eta_min} min` : "\u2014";
           existingPopup.setHTML(`
             <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
               <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
               <div class="space-y-1">
                 <div><span class="text-zinc-500">Route:</span> ${routeLabel}</div>
                 <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
+                <div><span class="text-zinc-500">ETA:</span> ${etaText}</div>
                 <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
                 <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
               </div>
@@ -415,12 +417,14 @@ export default function CorridorMonitor() {
 
         const popupColor = getBusColor(bus.status);
         const routeLabel = displayRouteName(route?.name, bus.direction);
+        const etaText = bus.eta_min != null ? `${bus.eta_min} min` : "\u2014";
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(`
           <div class="p-3 text-xs bg-zinc-950 text-zinc-100 rounded-lg border border-zinc-800 shadow-xl max-w-[220px]">
             <div class="font-bold border-b border-zinc-800 pb-1 mb-2 text-sm text-amber-500">${bus.name}</div>
             <div class="space-y-1">
               <div><span class="text-zinc-500">Route:</span> ${routeLabel}</div>
               <div><span class="text-zinc-500">Speed:</span> ${bus.speed} km/h</div>
+              <div><span class="text-zinc-500">ETA:</span> ${etaText}</div>
               <div><span class="text-zinc-500">Occupancy:</span> ${bus.occupancy}/${bus.capacity}</div>
               <div><span class="text-zinc-500">Status:</span> <span class="font-bold uppercase text-[10px]" style="color:${popupColor}">${bus.status}</span></div>
             </div>

@@ -321,6 +321,16 @@ class SimulationEngine:
                 bus.status = state["status"].lower().replace(" ", "_")
                 bus.last_updated = datetime.now()
 
+                # Compute ETA to nearest terminal
+                if state["speed"] > 0 and state["pause_ticks"] == 0:
+                    if state["direction"]:
+                        eta_km = total_dist - state["distance_km"]
+                    else:
+                        eta_km = state["distance_km"]
+                    eta_min = round((eta_km / state["speed"]) * 60, 1)
+                else:
+                    eta_min = None
+
                 # Gather data to broadcast
                 broadcast_data.append({
                     "id": bus.id,
@@ -335,6 +345,7 @@ class SimulationEngine:
                     "status": bus.status,
                     "bearing": round(bearing, 1),
                     "direction": state["direction"],
+                    "eta_min": eta_min,
                     "last_updated": bus.last_updated.isoformat()
                 })
 
