@@ -138,3 +138,44 @@ def get_position_along_route(
     else:
         bearing = 0.0
     return waypoints[-1], bearing
+
+
+def compute_route_overlaps(
+    routes: Dict[int, List[List[float]]]
+) -> Dict[int, Dict[int, float]]:
+    """
+    Precompute shared-route distances for all route pairs.
+
+    Returns {route_id: {other_route_id: shared_distance_km, ...}, ...}
+    where shared_distance_km is the distance along route_id's waypoints
+    before it diverges from other_route_id.
+    """
+    overlaps: Dict[int, Dict[int, float]] = {}
+    route_ids = list(routes.keys())
+
+    for rid_a in route_ids:
+        overlaps[rid_a] = {}
+        wps_a = routes[rid_a]
+        for rid_b in route_ids:
+            if rid_a == rid_b:
+                continue
+            wps_b = routes[rid_b]
+
+            # Find last waypoint index where routes are still together
+            shared_count = 0
+            for k in range(min(len(wps_a), len(wps_b))):
+                if haversine_distance(
+                    (float(wps_a[k][0]), float(wps_a[k][1])),
+                    (float(wps_b[k][0]), float(wps_b[k][1])),
+                ) < 0.05:  # 50m threshold
+                    shared_count = k + 1
+                else:
+                    break
+
+            if shared_count >= 2:
+                segs_a = get_route_segments(
+                    [(float(w[0]), float(w[1])) for w in wps_a[:shared_count]]
+                )
+                overlaps[rid_a][rid_b] = sum(segs_a)
+
+    return overlaps

@@ -10,7 +10,7 @@ from app.core.database import SessionLocal
 from app.models.routes import Route
 from app.models.buses import Bus
 from app.models.incidents import Incident
-from app.simulation.coordinates import get_position_along_route, haversine_distance
+from app.simulation.coordinates import get_position_along_route, haversine_distance, compute_route_overlaps
 from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ class SimulationEngine:
         self.is_running = False
         self.tick_interval_seconds = 2.0
         self.task = None
+        self.route_overlaps: Dict[int, Dict[int, float]] = {}
 
     def initialize_buses(self, db: Session):
         """Ensure 50 buses exist in the database and load/initialize their simulation state."""
@@ -56,6 +57,10 @@ class SimulationEngine:
         if not routes:
             logger.warning("No routes found in database. Cannot initialize buses.")
             return
+
+        # Precompute route overlap distances for incident propagation
+        self.route_overlaps = compute_route_overlaps({r.id: r.waypoints for r in routes if r.waypoints})
+        logger.info(f"Computed route overlaps for {len(self.route_overlaps)} routes.")
 
         buses = db.query(Bus).all()
         
@@ -183,8 +188,16 @@ class SimulationEngine:
                         state["speed"] = random.uniform(40.0, 60.0)
                         state["occupancy"] = random.randint(10, bus.capacity)
                 else:
-                    # Determine speed multiplier and status based on incidents affecting this route
+                    # Collect incidents affecting this bus
                     route_incidents = [inc for inc in incidents if inc.affected_route_id == bus.route_id]
+
+                    # Add incidents from overlapping routes if bus is still in the shared segment
+                    overlap_map = self.route_overlaps.get(bus.route_id, {})
+                    for inc in incidents:
+                        rid = inc.affected_route_id
+                        if rid != bus.route_id and rid in overlap_map:
+                            if state["distance_km"] <= overlap_map[rid]:
+                                route_incidents.append(inc)
                     
                     status = "NORMAL"
                     speed_multiplier = 1.0
