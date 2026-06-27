@@ -19,6 +19,8 @@ export interface Bus {
   occupancy: number;
   status: string;
   bearing?: number;
+  direction?: boolean;
+  eta_min?: number | null;
   last_updated: string;
 }
 
@@ -203,6 +205,18 @@ export interface DemandInsight {
   summary: string;
   recommendation: string;
   source: string;
+}
+
+export interface IncidentCreateRequest {
+  incident_type: string;
+  severity: string;
+  title?: string;
+  description?: string;
+  lat: number;
+  lng: number;
+  affected_route_id: number;
+  estimated_delay_min: number;
+  duration_minutes?: number | null;
 }
 
 export interface ScenarioSimulateRequest {

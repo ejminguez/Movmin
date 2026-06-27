@@ -138,3 +138,73 @@ def get_position_along_route(
     else:
         bearing = 0.0
     return waypoints[-1], bearing
+
+
+def compute_route_overlaps(
+    routes: Dict[int, List[List[float]]]
+) -> Dict[int, Dict[int, float]]:
+    """
+    Precompute shared-route distances for all route pairs.
+
+    Returns {route_id: {other_route_id: shared_distance_km, ...}, ...}
+    where shared_distance_km is the distance along route_id's waypoints
+    before it diverges from other_route_id.
+    """
+    overlaps: Dict[int, Dict[int, float]] = {}
+    route_ids = list(routes.keys())
+
+    for rid_a in route_ids:
+        overlaps[rid_a] = {}
+        wps_a = routes[rid_a]
+        for rid_b in route_ids:
+            if rid_a == rid_b:
+                continue
+            wps_b = routes[rid_b]
+
+            # Find last waypoint index where routes are still together
+            shared_count = 0
+            for k in range(min(len(wps_a), len(wps_b))):
+                if haversine_distance(
+                    (float(wps_a[k][0]), float(wps_a[k][1])),
+                    (float(wps_b[k][0]), float(wps_b[k][1])),
+                ) < 0.05:  # 50m threshold
+                    shared_count = k + 1
+                else:
+                    break
+
+            if shared_count >= 2:
+                segs_a = get_route_segments(
+                    [(float(w[0]), float(w[1])) for w in wps_a[:shared_count]]
+                )
+                overlaps[rid_a][rid_b] = sum(segs_a)
+
+    return overlaps
+
+
+def project_incident_on_route(
+    waypoints: List[List[float]],
+    incident_lat: float,
+    incident_lng: float,
+) -> float:
+    """Find the distance along the route (in km) to the waypoint nearest the incident."""
+    if not waypoints:
+        return 0.0
+
+    min_dist = float("inf")
+    nearest_idx = 0
+    for i, wp in enumerate(waypoints):
+        d = haversine_distance(
+            (incident_lat, incident_lng),
+            (float(wp[0]), float(wp[1])),
+        )
+        if d < min_dist:
+            min_dist = d
+            nearest_idx = i
+
+    acc = 0.0
+    for i in range(nearest_idx):
+        acc += haversine_distance(
+            (float(waypoints[i][0]), float(waypoints[i][1])),
+            (float(waypoints[i + 1][0]), float(waypoints[i + 1][1])),
+        )
+    return acc

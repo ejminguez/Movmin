@@ -10,7 +10,7 @@ from app.core.database import SessionLocal
 from app.models.routes import Route
 from app.models.buses import Bus
 from app.models.incidents import Incident
-from app.simulation.coordinates import get_position_along_route
+from app.simulation.coordinates import get_position_along_route, haversine_distance, compute_route_overlaps, project_incident_on_route
 from app.services.scenario import scenario_manager
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ class SimulationEngine:
         self.is_running = False
         self.tick_interval_seconds = 2.0
         self.task = None
+        self.route_overlaps: Dict[int, Dict[int, float]] = {}
 
     def initialize_buses(self, db: Session):
         """Ensure 50 buses exist in the database and load/initialize their simulation state."""
@@ -56,6 +57,10 @@ class SimulationEngine:
         if not routes:
             logger.warning("No routes found in database. Cannot initialize buses.")
             return
+
+        # Precompute route overlap distances for incident propagation
+        self.route_overlaps = compute_route_overlaps({r.id: r.waypoints for r in routes if r.waypoints})
+        logger.info(f"Computed route overlaps for {len(self.route_overlaps)} routes.")
 
         buses = db.query(Bus).all()
         
@@ -183,8 +188,31 @@ class SimulationEngine:
                         state["speed"] = random.uniform(40.0, 60.0)
                         state["occupancy"] = random.randint(10, bus.capacity)
                 else:
-                    # Determine speed multiplier and status based on incidents affecting this route
+                    # Collect incidents affecting this bus
                     route_incidents = [inc for inc in incidents if inc.affected_route_id == bus.route_id]
+
+                    # Add incidents from overlapping routes if bus is still in the shared segment
+                    overlap_map = self.route_overlaps.get(bus.route_id, {})
+                    for inc in incidents:
+                        rid = inc.affected_route_id
+                        if rid != bus.route_id and rid in overlap_map:
+                            if state["distance_km"] <= overlap_map[rid]:
+                                route_incidents.append(inc)
+
+                    # Filter out Road Closure / Landslide incidents the bus has already passed
+                    stopping_incidents = {"Road Closure", "Landslide"}
+                    filtered = []
+                    for inc in route_incidents:
+                        if inc.incident_type in stopping_incidents and inc.lat is not None and inc.lng is not None:
+                            inc_dist = project_incident_on_route(waypoints, inc.lat, inc.lng)
+                            has_passed = (
+                                (state["direction"] and state["distance_km"] > inc_dist)
+                                or (not state["direction"] and state["distance_km"] < inc_dist)
+                            )
+                            if has_passed:
+                                continue
+                        filtered.append(inc)
+                    route_incidents = filtered
                     
                     status = "NORMAL"
                     speed_multiplier = 1.0
@@ -192,10 +220,18 @@ class SimulationEngine:
                     if route_incidents:
                         incident_types = {inc.incident_type for inc in route_incidents}
                         
-                        if "Road Closure" in incident_types:
-                            status = "STOPPED" if (bus.id % 2 == 0) else "REROUTING"
-                        elif "Landslide" in incident_types:
-                            status = "STOPPED" if (bus.id % 2 == 0) else "DELAYED"
+                        # Road Closure and Landslide: stop only if bus is close to the incident
+                        if incident_types & stopping_incidents:
+                            bus_pos, _ = get_position_along_route(waypoints, state["distance_km"])
+                            near_stop = False
+                            stop_threshold_km = 1.0
+                            for inc in route_incidents:
+                                if inc.incident_type in stopping_incidents and inc.lat is not None and inc.lng is not None:
+                                    dist = haversine_distance(bus_pos, (inc.lat, inc.lng))
+                                    if dist <= stop_threshold_km:
+                                        near_stop = True
+                                        break
+                            status = "STOPPED" if near_stop else "DELAYED"
                         elif "Flood Warning" in incident_types or "Weather Advisory" in incident_types:
                             status = "DELAYED"
                         else:
@@ -285,6 +321,16 @@ class SimulationEngine:
                 bus.status = state["status"].lower().replace(" ", "_")
                 bus.last_updated = datetime.now()
 
+                # Compute ETA to nearest terminal
+                if state["speed"] > 0 and state["pause_ticks"] == 0:
+                    if state["direction"]:
+                        eta_km = total_dist - state["distance_km"]
+                    else:
+                        eta_km = state["distance_km"]
+                    eta_min = round((eta_km / state["speed"]) * 60, 1)
+                else:
+                    eta_min = None
+
                 # Gather data to broadcast
                 broadcast_data.append({
                     "id": bus.id,
@@ -298,6 +344,8 @@ class SimulationEngine:
                     "occupancy": bus.occupancy,
                     "status": bus.status,
                     "bearing": round(bearing, 1),
+                    "direction": state["direction"],
+                    "eta_min": eta_min,
                     "last_updated": bus.last_updated.isoformat()
                 })
 
